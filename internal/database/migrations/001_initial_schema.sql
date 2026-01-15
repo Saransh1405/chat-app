@@ -37,7 +37,7 @@ CREATE INDEX idx_users_deleted_at ON users(deleted_at);
 -- Rooms table
 CREATE TABLE IF NOT EXISTS rooms (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    application_id UUID NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    application_id UUID REFERENCES applications(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     type VARCHAR(50) NOT NULL DEFAULT 'group',
     description TEXT,

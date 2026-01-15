@@ -14,7 +14,9 @@ import (
 	"chat-app/internal/database"
 	"chat-app/internal/handler/rest"
 	"chat-app/internal/handler/websocket"
+	"chat-app/internal/kafka"
 	"chat-app/internal/middleware"
+	"chat-app/internal/redis"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,6 +48,27 @@ func main() {
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+
+	// Initialize Kafka producer
+	kafka, err := kafka.NewKafka(cfg.Kafka.Brokers)
+	if err != nil {
+		log.Fatalf("Failed to initialize Kafka producer: %v", err)
+	}
+	defer kafka.Close()
+
+	// // Initialize Kafka consumer
+	// kafkaConsumer, err := kafka.NewKafkaConsumer(cfg.Kafka.Brokers)
+	// if err != nil {
+	// 	log.Fatalf("Failed to initialize Kafka consumer: %v", err)
+	// }
+	// defer kafkaConsumer.Close()
+
+	// Initialize redis client
+	redisClient, err := redis.NewRedis(cfg.Redis)
+	if err != nil {
+		log.Fatalf("Failed to initialize Redis client: %v", err)
+	}
+	defer redisClient.Client.Close()
 
 	router := gin.New()
 

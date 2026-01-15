@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"log"
+	"sync"
 )
 
 // Message represents a WebSocket message
@@ -39,6 +40,9 @@ type Hub struct {
 		RoomID  string
 		Message MessageStruct
 	}
+
+	// Mutex
+	mu sync.RWMutex
 }
 
 // NewHub creates a new WebSocket hub
@@ -139,6 +143,9 @@ func (h *Hub) broadcastToRoom(roomID string, message MessageStruct) {
 
 // GetRoomConnections returns the number of connections in a room
 func (h *Hub) GetRoomConnections(roomID string) int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
 	if roomConns, ok := h.RoomSubscriptions[roomID]; ok {
 		return len(roomConns)
 	}

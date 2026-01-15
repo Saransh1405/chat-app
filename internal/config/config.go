@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	Server      ServerConfig
+	Kafka       KafkaConfig
 	Database    DatabaseConfig
 	JWT         JWTConfig
 	CORS        CORSConfig
@@ -25,14 +26,14 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host                string
-	Port                string
-	User                string
-	Password            string
-	Name                string
-	SSLMode             string
-	MaxConnections      int
-	MaxIdleConnections  int
+	Host                  string
+	Port                  string
+	User                  string
+	Password              string
+	Name                  string
+	SSLMode               string
+	MaxConnections        int
+	MaxIdleConnections    int
 	ConnectionMaxLifetime time.Duration
 }
 
@@ -43,10 +44,10 @@ type JWTConfig struct {
 }
 
 type CORSConfig struct {
-	AllowedOrigins     []string
-	AllowedMethods     []string
-	AllowedHeaders     []string
-	AllowCredentials   bool
+	AllowedOrigins   []string
+	AllowedMethods   []string
+	AllowedHeaders   []string
+	AllowCredentials bool
 }
 
 type RedisConfig struct {
@@ -57,9 +58,14 @@ type RedisConfig struct {
 	Enabled  bool
 }
 
+type KafkaConfig struct {
+	Brokers []string
+	Topic   string
+}
+
 type FileStorageConfig struct {
-	Path            string
-	MaxFileSize     int64
+	Path             string
+	MaxFileSize      int64
 	AllowedFileTypes []string
 }
 
@@ -73,14 +79,14 @@ func Load() (*Config, error) {
 			Port: getEnv("SERVER_PORT", "8080"),
 		},
 		Database: DatabaseConfig{
-			Host:                getEnv("DB_HOST", "localhost"),
-			Port:                getEnv("DB_PORT", "5432"),
-			User:                getEnv("DB_USER", "chat_app_user"),
-			Password:            getEnv("DB_PASSWORD", "chat_app_password"),
-			Name:                getEnv("DB_NAME", "chat_app_db"),
-			SSLMode:             getEnv("DB_SSL_MODE", "disable"),
-			MaxConnections:      getEnvAsInt("DB_MAX_CONNECTIONS", 25),
-			MaxIdleConnections:  getEnvAsInt("DB_MAX_IDLE_CONNECTIONS", 5),
+			Host:                  getEnv("DB_HOST", "localhost"),
+			Port:                  getEnv("DB_PORT", "5432"),
+			User:                  getEnv("DB_USER", "chat_app_user"),
+			Password:              getEnv("DB_PASSWORD", "chat_app_password"),
+			Name:                  getEnv("DB_NAME", "chat_app_db"),
+			SSLMode:               getEnv("DB_SSL_MODE", "disable"),
+			MaxConnections:        getEnvAsInt("DB_MAX_CONNECTIONS", 25),
+			MaxIdleConnections:    getEnvAsInt("DB_MAX_IDLE_CONNECTIONS", 5),
 			ConnectionMaxLifetime: getEnvAsDuration("DB_CONNECTION_MAX_LIFETIME", "300s"),
 		},
 		JWT: JWTConfig{
@@ -102,9 +108,13 @@ func Load() (*Config, error) {
 			Enabled:  getEnvAsBool("REDIS_ENABLED", false),
 		},
 		FileStorage: FileStorageConfig{
-			Path:            getEnv("FILE_STORAGE_PATH", "./uploads"),
-			MaxFileSize:     getEnvAsInt64("MAX_FILE_SIZE", 10485760), // 10MB
+			Path:             getEnv("FILE_STORAGE_PATH", "./uploads"),
+			MaxFileSize:      getEnvAsInt64("MAX_FILE_SIZE", 10485760), // 10MB
 			AllowedFileTypes: getEnvAsSlice("ALLOWED_FILE_TYPES", []string{"image/jpeg", "image/png", "image/gif", "application/pdf", "text/plain"}),
+		},
+		Kafka: KafkaConfig{
+			Brokers: getEnvAsSlice("KAFKA_BROKERS", []string{"localhost:9092"}),
+			Topic:   getEnv("KAFKA_TOPIC", "chat-app"),
 		},
 		Environment: getEnv("ENVIRONMENT", "development"),
 	}
@@ -203,7 +213,7 @@ func getEnvAsSlice(key string, defaultValue []string) []string {
 	if valueStr == "" {
 		return defaultValue
 	}
-	
+
 	var result []string
 	for _, item := range splitString(valueStr, ",") {
 		trimmed := trimString(item)
@@ -211,7 +221,7 @@ func getEnvAsSlice(key string, defaultValue []string) []string {
 			result = append(result, trimmed)
 		}
 	}
-	
+
 	if len(result) == 0 {
 		return defaultValue
 	}
@@ -248,4 +258,3 @@ func trimString(s string) string {
 	}
 	return s[start:end]
 }
-

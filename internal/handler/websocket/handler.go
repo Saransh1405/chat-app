@@ -8,6 +8,7 @@ import (
 	"chat-app/internal/config"
 	"chat-app/internal/database"
 	"chat-app/internal/middleware"
+	"chat-app/internal/utils/helperfunctions"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -136,21 +137,42 @@ func (ws *WSConnection) readPump() {
 		switch msg.Type {
 		case "subscribe":
 			if msg.RoomID != "" {
-				// TODO: Validate user is member of room via database
-				// For now, just subscribe
-				ws.Hub.SubscribeToRoom(ws.Connection, msg.RoomID)
-				log.Printf("User %s subscribed to room %s", ws.UserID, msg.RoomID)
+				isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.UserID, msg.RoomID)
+				if err != nil {
+					ws.Send <- MessageStruct{
+						Type: "error",
+						Payload: map[string]interface{}{
+							"message": "error validating user is member of room",
+						},
+					}
+					break
+				}
+				if !isMember {
+					ws.Hub.SubscribeToRoom(ws.Connection, msg.RoomID)
+					log.Printf("User %s subscribed to room %s", ws.UserID, msg.RoomID)
+				}
 			}
 		case "unsubscribe":
 			if msg.RoomID != "" {
-				ws.Hub.UnsubscribeFromRoom(ws.Connection, msg.RoomID)
-				log.Printf("User %s unsubscribed from room %s", ws.UserID, msg.RoomID)
+				isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.UserID, msg.RoomID)
+				if err != nil {
+					log.Printf("Error validating user is member of room: %v", err)
+					ws.Send <- MessageStruct{
+						Type: "error",
+						Payload: map[string]interface{}{
+							"message": "user is not a member of the room or room does not exist",
+						},
+					}
+					break
+				}
+				if isMember {
+					ws.Hub.UnsubscribeFromRoom(ws.Connection, msg.RoomID)
+					log.Printf("User %s unsubscribed from room %s", ws.UserID, msg.RoomID)
+				}
 			}
 		case "ping":
-			// Respond to ping with pong
 			ws.Send <- MessageStruct{Type: "pong"}
-		case "pong":
-			// Handle pong (already handled by SetPongHandler)
+			break
 		case "message":
 			if msg.RoomID == "" {
 				ws.Send <- MessageStruct{
@@ -161,18 +183,32 @@ func (ws *WSConnection) readPump() {
 				}
 				break
 			}
-			// Validate user is member of room
+
+			isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.UserID, msg.RoomID)
+			if err != nil {
+				log.Printf("Error validating user is member of room: %v", err)
+				ws.Send <- MessageStruct{
+					Type: "error",
+					Payload: map[string]interface{}{
+						"message": "user is not a member of the room or room does not exist",
+					},
+				}
+				break
+			}
+			
 			// Save message to database
-			// Broadcast to room via hub
-			ws.Hub.Broadcast <- struct {
-				RoomID  string
-				Message MessageStruct
-			}{
-				RoomID: msg.RoomID,
-				Message: MessageStruct{
-					Type:    "message",
-					Payload: msg.Payload,
-				},
+
+			if !isMember {
+				ws.Hub.Broadcast <- struct {
+					RoomID  string
+					Message MessageStruct
+				}{
+					RoomID: msg.RoomID,
+					Message: MessageStruct{
+						Type:    "message",
+						Payload: msg.Payload,
+					},
+				}
 			}
 		default:
 			log.Printf("Unknown message type: %s", msg.Type)
