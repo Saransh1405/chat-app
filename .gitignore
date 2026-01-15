@@ -1,0 +1,49 @@
+# Binaries
+/bin/
+/chat-app
+/chat-app.exe
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test coverage
+*.out
+coverage.html
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Uploaded files
+uploads/
+storage/
+
+# Go specific
+vendor/
+go.sum.bak
+
+# Docker
+docker-compose.override.yml
+
+# mds
+mds/
