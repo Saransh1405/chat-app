@@ -3,27 +3,27 @@ package errors
 import (
 	"fmt"
 	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
-// ErrorDetail represents a field-specific error
 type ErrorDetail struct {
 	Field string `json:"field"`
 	Issue string `json:"issue"`
 	Value string `json:"value,omitempty"`
 }
 
-// ErrorResponse represents the standardized error response format
 type ErrorResponse struct {
 	Error struct {
-		Code      string       `json:"code"`
-		Message   string       `json:"message"`
+		Code      string        `json:"code"`
+		Message   string        `json:"message"`
 		Details   []ErrorDetail `json:"details,omitempty"`
-		TraceID   string       `json:"traceId,omitempty"`
-		Timestamp string       `json:"timestamp"`
+		TraceID   string        `json:"traceId,omitempty"`
+		Timestamp string        `json:"timestamp"`
 	} `json:"error"`
 }
 
-// Standard error codes
 const (
 	ErrCodeValidationError   = "VALIDATION_ERROR"
 	ErrCodeUnauthorized      = "UNAUTHORIZED"
@@ -36,7 +36,6 @@ const (
 	ErrCodeWebSocketError    = "WEBSOCKET_ERROR"
 )
 
-// AppError represents an application error
 type AppError struct {
 	Code       string
 	Message    string
@@ -52,7 +51,6 @@ func (e *AppError) Error() string {
 	return e.Message
 }
 
-// NewAppError creates a new application error
 func NewAppError(code, message string, statusCode int) *AppError {
 	return &AppError{
 		Code:       code,
@@ -61,19 +59,16 @@ func NewAppError(code, message string, statusCode int) *AppError {
 	}
 }
 
-// WithDetails adds details to the error
 func (e *AppError) WithDetails(details ...ErrorDetail) *AppError {
 	e.Details = details
 	return e
 }
 
-// WithError wraps an underlying error
 func (e *AppError) WithError(err error) *AppError {
 	e.Err = err
 	return e
 }
 
-// Predefined error constructors
 func NewValidationError(message string, details ...ErrorDetail) *AppError {
 	return NewAppError(ErrCodeValidationError, message, http.StatusBadRequest).WithDetails(details...)
 }
@@ -102,3 +97,29 @@ func NewDatabaseError(message string, err error) *AppError {
 	return NewAppError(ErrCodeDatabaseError, message, http.StatusInternalServerError).WithError(err)
 }
 
+func RespondWithError(c *gin.Context, statusCode int, code string, message string, details []ErrorDetail) {
+	traceID := c.GetString("traceId")
+	if traceID == "" {
+		traceID = c.GetString("requestId")
+	}
+
+	c.JSON(statusCode, ErrorResponse{
+		Error: struct {
+			Code      string        `json:"code"`
+			Message   string        `json:"message"`
+			Details   []ErrorDetail `json:"details,omitempty"`
+			TraceID   string        `json:"traceId,omitempty"`
+			Timestamp string        `json:"timestamp"`
+		}{
+			Code:      code,
+			Message:   message,
+			Details:   details,
+			TraceID:   traceID,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		},
+	})
+}
+
+func RespondWithAppError(c *gin.Context, err *AppError) {
+	RespondWithError(c, err.StatusCode, err.Code, err.Message, err.Details)
+}

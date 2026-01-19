@@ -70,7 +70,6 @@ type FileStorageConfig struct {
 }
 
 func Load() (*Config, error) {
-	// Load .env file if it exists (ignore error if file doesn't exist)
 	_ = godotenv.Load()
 
 	cfg := &Config{
@@ -109,7 +108,7 @@ func Load() (*Config, error) {
 		},
 		FileStorage: FileStorageConfig{
 			Path:             getEnv("FILE_STORAGE_PATH", "./uploads"),
-			MaxFileSize:      getEnvAsInt64("MAX_FILE_SIZE", 10485760), // 10MB
+			MaxFileSize:      getEnvAsInt64("MAX_FILE_SIZE", 10485760), 
 			AllowedFileTypes: getEnvAsSlice("ALLOWED_FILE_TYPES", []string{"image/jpeg", "image/png", "image/gif", "application/pdf", "text/plain"}),
 		},
 		Kafka: KafkaConfig{
@@ -119,7 +118,6 @@ func Load() (*Config, error) {
 		Environment: getEnv("ENVIRONMENT", "development"),
 	}
 
-	// Validate required configuration
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}

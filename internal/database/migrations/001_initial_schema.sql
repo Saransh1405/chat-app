@@ -1,7 +1,5 @@
--- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Applications table (multi-tenant)
 CREATE TABLE IF NOT EXISTS applications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
@@ -15,7 +13,6 @@ CREATE TABLE IF NOT EXISTS applications (
 CREATE INDEX idx_applications_api_key ON applications(api_key);
 CREATE INDEX idx_applications_deleted_at ON applications(deleted_at);
 
--- Users table
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     application_id UUID REFERENCES applications(id) ON DELETE CASCADE,
@@ -34,7 +31,6 @@ CREATE INDEX idx_users_application_id ON users(application_id);
 CREATE INDEX idx_users_external_id ON users(application_id, external_id);
 CREATE INDEX idx_users_deleted_at ON users(deleted_at);
 
--- Rooms table
 CREATE TABLE IF NOT EXISTS rooms (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     application_id UUID REFERENCES applications(id) ON DELETE CASCADE,
@@ -53,7 +49,6 @@ CREATE INDEX idx_rooms_type ON rooms(type);
 CREATE INDEX idx_rooms_created_by ON rooms(created_by);
 CREATE INDEX idx_rooms_deleted_at ON rooms(deleted_at);
 
--- Room members table (many-to-many)
 CREATE TABLE IF NOT EXISTS room_members (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
@@ -68,7 +63,6 @@ CREATE INDEX idx_room_members_room_id ON room_members(room_id);
 CREATE INDEX idx_room_members_user_id ON room_members(user_id);
 CREATE INDEX idx_room_members_last_read ON room_members(user_id, last_read_at);
 
--- Messages table
 CREATE TABLE IF NOT EXISTS messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
@@ -89,10 +83,8 @@ CREATE INDEX idx_messages_reply_to ON messages(reply_to);
 CREATE INDEX idx_messages_created_at ON messages(created_at DESC);
 CREATE INDEX idx_messages_deleted_at ON messages(deleted_at);
 
--- Composite index for efficient room message queries
 CREATE INDEX idx_messages_room_created ON messages(room_id, created_at DESC) WHERE deleted_at IS NULL;
 
--- Message reactions table
 CREATE TABLE IF NOT EXISTS message_reactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -105,7 +97,6 @@ CREATE TABLE IF NOT EXISTS message_reactions (
 CREATE INDEX idx_message_reactions_message_id ON message_reactions(message_id);
 CREATE INDEX idx_message_reactions_user_id ON message_reactions(user_id);
 
--- Message reads table (read receipts)
 CREATE TABLE IF NOT EXISTS message_reads (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -118,7 +109,6 @@ CREATE INDEX idx_message_reads_message_id ON message_reads(message_id);
 CREATE INDEX idx_message_reads_user_id ON message_reads(user_id);
 CREATE INDEX idx_message_reads_read_at ON message_reads(read_at);
 
--- Files table
 CREATE TABLE IF NOT EXISTS files (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     application_id UUID NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
@@ -137,7 +127,6 @@ CREATE INDEX idx_files_message_id ON files(message_id);
 CREATE INDEX idx_files_user_id ON files(user_id);
 CREATE INDEX idx_files_deleted_at ON files(deleted_at);
 
--- Typing indicators table (temporary/cache)
 CREATE TABLE IF NOT EXISTS typing_indicators (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
@@ -149,7 +138,6 @@ CREATE TABLE IF NOT EXISTS typing_indicators (
 CREATE INDEX idx_typing_indicators_room_id ON typing_indicators(room_id);
 CREATE INDEX idx_typing_indicators_expires_at ON typing_indicators(expires_at);
 
--- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -158,7 +146,6 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
--- Triggers to auto-update updated_at
 CREATE TRIGGER update_applications_updated_at BEFORE UPDATE ON applications
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// RoomType represents the type of room
 type RoomType string
 
 const (
@@ -15,7 +14,6 @@ const (
 	RoomTypeChannel RoomType = "channel"
 )
 
-// Room represents a chat room/channel
 type Room struct {
 	ID           uuid.UUID  `json:"id" db:"id"`
 	ApplicationID uuid.UUID  `json:"application_id" db:"application_id"`
@@ -29,7 +27,6 @@ type Room struct {
 	DeletedAt    *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
 }
 
-// RoomMember represents a user's membership in a room
 type RoomMember struct {
 	ID         uuid.UUID   `json:"id" db:"id"`
 	RoomID     uuid.UUID   `json:"room_id" db:"room_id"`

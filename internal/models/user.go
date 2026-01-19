@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// JSONB is a helper type for PostgreSQL JSONB fields
 type JSONB map[string]interface{}
 
 func (j JSONB) Value() (driver.Value, error) {
@@ -27,7 +26,6 @@ func (j *JSONB) Scan(value interface{}) error {
 	return json.Unmarshal(bytes, j)
 }
 
-// User represents a user within an application
 type User struct {
 	ID            uuid.UUID  `json:"id" db:"id"`
 	ApplicationID uuid.UUID  `json:"application_id" db:"application_id"`

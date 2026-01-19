@@ -18,52 +18,51 @@ import (
 	"chat-app/internal/middleware"
 	"chat-app/internal/redis"
 
+	"github.com/IBM/sarama"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Initialize database
 	db, err := database.NewConnection(cfg.Database)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
 
-	// Run migrations
 	if err := database.RunMigrations(cfg.Database); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
-	// Initialize WebSocket hub
 	wsHub := websocket.NewHub()
 	go wsHub.Run()
 
-	// Setup Gin router
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// Initialize Kafka producer
 	kafka, err := kafka.NewKafka(cfg.Kafka.Brokers)
 	if err != nil {
 		log.Fatalf("Failed to initialize Kafka producer: %v", err)
 	}
 	defer kafka.Close()
 
-	// // Initialize Kafka consumer
-	// kafkaConsumer, err := kafka.NewKafkaConsumer(cfg.Kafka.Brokers)
-	// if err != nil {
-	// 	log.Fatalf("Failed to initialize Kafka consumer: %v", err)
-	// }
-	// defer kafkaConsumer.Close()
+	go func() {
+		err = kafka.Produce(cfg.Kafka.Topic, []byte("test message"))
+		if err != nil {
+			log.Fatalf("Failed to produce message: %v", err)
+		}
 
-	// Initialize redis client
+		err = kafka.StartConsumer(cfg.Kafka.Topic, 0, int64(sarama.OffsetNewest))
+		if err != nil {
+			log.Fatalf("Failed to start Kafka consumer: %v", err)
+		}
+	}()
+
 	redisClient, err := redis.NewRedis(cfg.Redis)
 	if err != nil {
 		log.Fatalf("Failed to initialize Redis client: %v", err)
@@ -72,20 +71,16 @@ func main() {
 
 	router := gin.New()
 
-	// Global middleware
 	router.Use(middleware.Logger())
 	router.Use(middleware.Recovery())
 	router.Use(middleware.CORS(cfg.CORS))
 
-	// Health check endpoints
 	router.GET("/health", healthCheck)
 	router.GET("/health/ready", readinessCheck(db))
 	router.GET("/health/live", livenessCheck)
 
-	// API v1 routes
 	v1 := router.Group("/api/v1")
 	{
-		// Public routes (authentication)
 		authHandler := rest.NewAuthHandler(cfg, db)
 		auth := v1.Group("/auth")
 		{
@@ -94,11 +89,9 @@ func main() {
 			auth.POST("/refresh", authHandler.RefreshToken)
 		}
 
-		// Protected routes
 		protected := v1.Group("")
 		protected.Use(middleware.Auth(cfg.JWT.Secret))
 		{
-			// Application routes
 			appHandler := rest.NewApplicationHandler(db)
 			apps := protected.Group("/applications")
 			{
@@ -109,7 +102,6 @@ func main() {
 				apps.DELETE("/:id", appHandler.Delete)
 			}
 
-			// User routes (scoped to application)
 			userHandler := rest.NewUserHandler(db)
 			users := protected.Group("/applications/:app_id/users")
 			{
@@ -122,7 +114,6 @@ func main() {
 				users.DELETE("/:id", userHandler.Delete)
 			}
 
-			// User routes
 			directUserHandler := rest.NewUserHandler(db)
 			directUsers := protected.Group("/users")
 			{
@@ -135,7 +126,6 @@ func main() {
 				directUsers.DELETE("/:id", directUserHandler.Delete)
 			}
 
-			// Room routes (scoped to application)
 			roomHandler := rest.NewRoomHandler(db)
 			rooms := protected.Group("/applications/:app_id/rooms")
 			{
@@ -149,10 +139,10 @@ func main() {
 				rooms.GET("/:id/members", roomHandler.ListMembers)
 			}
 
-			// Message routes (scoped to application and room)
 			messageHandler := rest.NewMessageHandler(db, wsHub)
 			messages := protected.Group("/applications/:app_id/rooms/:room_id/messages")
 			{
+				messages.Use(middleware.Auth(cfg.JWT.Secret))
 				messages.POST("", messageHandler.Create)
 				messages.GET("", messageHandler.List)
 				messages.GET("/:message_id", messageHandler.Get)
@@ -160,7 +150,6 @@ func main() {
 				messages.DELETE("/:message_id", messageHandler.Delete)
 			}
 
-			// Reaction routes
 			reactionHandler := rest.NewReactionHandler(db, wsHub)
 			reactions := protected.Group("/applications/:app_id/messages/:message_id/reactions")
 			{
@@ -169,7 +158,6 @@ func main() {
 				reactions.GET("", reactionHandler.List)
 			}
 
-			// Typing indicator routes
 			typingHandler := rest.NewTypingHandler(db, wsHub)
 			typing := protected.Group("/applications/:app_id/rooms/:room_id/typing")
 			{
@@ -177,7 +165,6 @@ func main() {
 			}
 		}
 
-		// WebSocket endpoint
 		wsHandler := websocket.NewHandler(wsHub, cfg, db)
 		ws := protected.Group("/ws")
 		{
@@ -186,7 +173,6 @@ func main() {
 		}
 	}
 
-	// Start server
 	addr := fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
 		Addr:         addr,
@@ -196,7 +182,6 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Graceful shutdown
 	go func() {
 		log.Printf("Server starting on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -204,7 +189,6 @@ func main() {
 		}
 	}()
 
-	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

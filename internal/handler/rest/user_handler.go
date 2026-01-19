@@ -74,28 +74,27 @@ func (h *UserHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithEmail(&user, appID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+	if err := helperfunctions.CheckIfUserExistsWithEmail(h.db, &user, appID); err == nil {
+		c.JSON(http.StatusConflict, gin.H{
 			"error": gin.H{
 				"code":    "USER_ALREADY_EXISTS",
-				"message": "User already exists",
+				"message": "User with this email already exists",
 			},
 		})
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithUsername(&user, appID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+	if err := helperfunctions.CheckIfUserExistsWithUsername(h.db, &user, appID); err == nil {
+		c.JSON(http.StatusConflict, gin.H{
 			"error": gin.H{
 				"code":    "USER_ALREADY_EXISTS",
-				"message": "User already exists",
+				"message": "User with this username already exists",
 			},
 		})
 		return
 	}
 
-	// Create user
-	err = helperfunctions.CreateUser(&user, appID)
+	err = helperfunctions.CreateUser(h.db, &user, appID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
@@ -147,28 +146,27 @@ func (h *UserHandler) DirectCreate(c *gin.Context) {
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithEmail(&user, ""); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+	if err := helperfunctions.CheckIfUserExistsWithEmail(h.db, &user, ""); err == nil {
+		c.JSON(http.StatusConflict, gin.H{
 			"error": gin.H{
 				"code":    "USER_ALREADY_EXISTS",
-				"message": "User already exists",
+				"message": "User with this email already exists",
 			},
 		})
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithUsername(&user, ""); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+	if err := helperfunctions.CheckIfUserExistsWithUsername(h.db, &user, ""); err == nil {
+		c.JSON(http.StatusConflict, gin.H{
 			"error": gin.H{
 				"code":    "USER_ALREADY_EXISTS",
-				"message": "User already exists",
+				"message": "User with this username already exists",
 			},
 		})
 		return
 	}
 
-	// Create user
-	err = helperfunctions.CreateUser(&user, "")
+	err = helperfunctions.CreateUser(h.db, &user, "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
@@ -186,13 +184,11 @@ func (h *UserHandler) DirectCreate(c *gin.Context) {
 }
 
 func (h *UserHandler) Get(c *gin.Context) {
-	// Get user ID from query parameter or path parameter
 	userID := c.Param("id")
 
 	var query string
 	var args []interface{}
 
-	// Validate UUID format
 	if !validator.ValidateUUID(userID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -203,11 +199,9 @@ func (h *UserHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Get application ID from path if available (for application-scoped routes)
 	appID := c.Param("app_id")
 
 	if appID != "" {
-		// Application-scoped query
 		if !validator.ValidateUUID(appID) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": gin.H{
@@ -230,13 +224,11 @@ func (h *UserHandler) Get(c *gin.Context) {
 		}
 	} else {
 		if userID != "" {
-			// Direct query (no application scope)
 			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 		         FROM users 
 		         WHERE id = $1 AND deleted_at IS NULL`
 			args = []interface{}{userID}
 		} else {
-			// Direct query (no application scope)
 			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 			         FROM users 
 			         WHERE deleted_at IS NULL`
@@ -244,7 +236,6 @@ func (h *UserHandler) Get(c *gin.Context) {
 		}
 	}
 
-	// Query user from database
 	user := models.User{}
 	var metadataJSON []byte
 	err := h.db.QueryRow(query, args...).Scan(
@@ -279,7 +270,6 @@ func (h *UserHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Parse metadata JSON if present
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &user.Metadata); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -298,7 +288,6 @@ func (h *UserHandler) Get(c *gin.Context) {
 }
 
 func (h *UserHandler) Update(c *gin.Context) {
-	// Get user ID from path parameter
 	userID := c.Param("id")
 	if userID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -310,7 +299,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Validate UUID format
 	if !validator.ValidateUUID(userID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -321,10 +309,8 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Get application ID from path if available (for application-scoped routes)
 	appID := c.Param("app_id")
 
-	// Get user data from request body
 	var updateData models.User
 	err := c.ShouldBindBodyWithJSON(&updateData)
 	if err != nil {
@@ -337,7 +323,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Validate email if provided
 	if updateData.Email != nil && *updateData.Email != "" {
 		if !validator.ValidateEmail(*updateData.Email) {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -350,7 +335,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// Validate username if provided
 	if updateData.Username != "" {
 		if !validator.ValidateLength(updateData.Username, 3, 255) {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -363,7 +347,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// Check if user exists
 	var checkQuery string
 	var checkArgs []interface{}
 	if appID != "" {
@@ -404,7 +387,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Check for duplicate email if email is being updated
 	if updateData.Email != nil && *updateData.Email != "" {
 		var emailCheckQuery string
 		var emailCheckArgs []interface{}
@@ -437,7 +419,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// Check for duplicate username if username is being updated
 	if updateData.Username != "" {
 		var usernameCheckQuery string
 		var usernameCheckArgs []interface{}
@@ -470,7 +451,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// Build update query dynamically based on provided fields
 	updateFields := []string{}
 	args := []interface{}{}
 	argIndex := 1
@@ -519,12 +499,10 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Add updated_at
 	updateFields = append(updateFields, fmt.Sprintf("updated_at = $%d", argIndex))
 	args = append(args, time.Now())
 	argIndex++
 
-	// Build WHERE clause
 	var whereClause string
 	if appID != "" {
 		whereClause = fmt.Sprintf("WHERE id = $%d AND application_id = $%d AND deleted_at IS NULL", argIndex, argIndex+1)
@@ -534,10 +512,8 @@ func (h *UserHandler) Update(c *gin.Context) {
 		args = append(args, userID)
 	}
 
-	// Build final query
 	updateQuery := fmt.Sprintf("UPDATE users SET %s %s", strings.Join(updateFields, ", "), whereClause)
 
-	// Execute update
 	result, err := h.db.Exec(updateQuery, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -570,7 +546,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Fetch updated user to return
 	var fetchQuery string
 	var fetchArgs []interface{}
 	if appID != "" {
@@ -601,17 +576,14 @@ func (h *UserHandler) Update(c *gin.Context) {
 	)
 
 	if err != nil {
-		// If we can't fetch the updated user, still return success but without user data
 		c.JSON(http.StatusOK, gin.H{
 			"message": "User updated successfully",
 		})
 		return
 	}
 
-	// Parse metadata JSON if present
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &updatedUser.Metadata); err != nil {
-			// Metadata parsing error, but user was updated successfully
 			c.JSON(http.StatusOK, gin.H{
 				"message": "User updated successfully",
 				"user":    updatedUser,
@@ -627,7 +599,6 @@ func (h *UserHandler) Update(c *gin.Context) {
 }
 
 func (h *UserHandler) Delete(c *gin.Context) {
-	// Get user ID from path parameter
 	userID := c.Param("id")
 	if userID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -639,7 +610,6 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Validate UUID format
 	if !validator.ValidateUUID(userID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -650,10 +620,8 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Get application ID from path if available (for application-scoped routes)
 	appID := c.Param("app_id")
 
-	// Check if user exists before soft delete
 	var checkQuery string
 	var checkArgs []interface{}
 	if appID != "" {
@@ -694,7 +662,6 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Perform soft delete (set deleted_at timestamp)
 	var deleteQuery string
 	var deleteArgs []interface{}
 	now := time.Now()

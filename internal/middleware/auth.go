@@ -4,14 +4,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"chat-app/internal/utils/jwt"
+
+	"github.com/gin-gonic/gin"
 )
 
-// Auth middleware validates JWT tokens and extracts user information
 func Auth(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Extract token from Authorization header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -24,7 +23,6 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		// Extract token from "Bearer <token>" format
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -39,7 +37,6 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 
 		token := parts[1]
 
-		// Validate and parse token
 		claims, err := jwt.ValidateToken(token, jwtSecret)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -52,12 +49,15 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
+		// Note: Database access in middleware requires refactoring to pass db instance
+		// For now, we'll skip these checks in middleware and rely on handler-level validation
+		// TODO: Refactor middleware to accept database connection or move these checks to handlers
+
 		// Store user information in context
 		c.Set("user_id", claims.UserID)
 		c.Set("app_id", claims.AppID)
-		c.Set("external_user_id", claims.ExternalUserID)
+		c.Set("room_id", claims.RoomID)
 
 		c.Next()
 	}
 }
-

@@ -23,7 +23,6 @@ func NewAuthHandler(cfg *config.Config, db *database.DB) *AuthHandler {
 	}
 }
 
-// Register handles application registration
 func (h *AuthHandler) Register(c *gin.Context) {
 	// TODO: Implement registration logic
 	c.JSON(http.StatusNotImplemented, gin.H{
@@ -34,7 +33,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	})
 }
 
-// Login handles user authentication
 func (h *AuthHandler) Login(c *gin.Context) {
 	email := c.Query("email")
 
@@ -49,19 +47,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// get the user from the database
-	user, err := helperfunctions.GetUserByEmail(email)
+	user, err := helperfunctions.GetUserByEmail(h.db, email)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "USER_NOT_FOUND",
-				"message": "User not found",
-			},
-		})
-		return
-	}
-
-	if err := helperfunctions.CheckIfUserExistsWithEmail(user, ""); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "USER_NOT_FOUND",
@@ -92,7 +79,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	})
 }
 
-// RefreshToken handles token refresh
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	// TODO: Implement token refresh logic
 	c.JSON(http.StatusNotImplemented, gin.H{

@@ -15,7 +15,6 @@ type DB struct {
 	*sql.DB
 }
 
-// NewConnection creates a new database connection pool
 func NewConnection(cfg config.DatabaseConfig) (*DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
@@ -32,12 +31,10 @@ func NewConnection(cfg config.DatabaseConfig) (*DB, error) {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
-	// Configure connection pool
 	db.SetMaxOpenConns(cfg.MaxConnections)
 	db.SetMaxIdleConns(cfg.MaxIdleConnections)
 	db.SetConnMaxLifetime(cfg.ConnectionMaxLifetime)
 
-	// Test connection
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -45,21 +42,17 @@ func NewConnection(cfg config.DatabaseConfig) (*DB, error) {
 	return &DB{db}, nil
 }
 
-// Ping checks the database connection
 func (db *DB) Ping() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return db.DB.PingContext(ctx)
 }
 
-// Close closes the database connection
 func (db *DB) Close() error {
 	return db.DB.Close()
 }
 
-// RunMigrations executes database migrations
 func RunMigrations(cfg config.DatabaseConfig) error {
-	// Connect to database for migrations
 	dsn := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		cfg.Host,

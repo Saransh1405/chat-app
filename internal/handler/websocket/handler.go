@@ -44,10 +44,10 @@ func NewHandler(hub *Hub, cfg *config.Config, db *database.DB) *Handler {
 	}
 }
 
-// WSConnection represents a WebSocket connection
 type WSConnection struct {
 	*Connection
 	wsConn *websocket.Conn
+	db     *database.DB
 }
 
 func (h *Handler) HandleConnection(c *gin.Context) {
@@ -80,7 +80,6 @@ func (h *Handler) HandleConnection(c *gin.Context) {
 		return
 	}
 
-	// Create connection object
 	connection := &Connection{
 		ID:      uuid.New().String(),
 		UserID:  userId.(string),
@@ -90,28 +89,24 @@ func (h *Handler) HandleConnection(c *gin.Context) {
 		Hub:     h.hub,
 	}
 
-	// Create WebSocket connection wrapper
 	wsConnection := &WSConnection{
 		Connection: connection,
 		wsConn:     wsConn,
+		db:         h.db,
 	}
 
-	// Register connection
 	h.hub.Register <- connection
 
-	// Start goroutines for reading and writing
 	go wsConnection.writePump()
 	go wsConnection.readPump()
 }
 
-// readPump pumps messages from the WebSocket connection to the hub
 func (ws *WSConnection) readPump() {
 	defer func() {
 		ws.Connection.Hub.Unregister <- ws.Connection
 		ws.wsConn.Close()
 	}()
 
-	// Set read deadline and pong handler
 	ws.wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	ws.wsConn.SetPongHandler(func(string) error {
 		ws.wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -133,11 +128,10 @@ func (ws *WSConnection) readPump() {
 			break
 		}
 
-		// Handle different message types
 		switch msg.Type {
 		case "subscribe":
 			if msg.RoomID != "" {
-				isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.UserID, msg.RoomID)
+				isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.db, ws.UserID, msg.RoomID)
 				if err != nil {
 					ws.Send <- MessageStruct{
 						Type: "error",
@@ -147,28 +141,22 @@ func (ws *WSConnection) readPump() {
 					}
 					break
 				}
-				if !isMember {
+				if isMember {
 					ws.Hub.SubscribeToRoom(ws.Connection, msg.RoomID)
 					log.Printf("User %s subscribed to room %s", ws.UserID, msg.RoomID)
+				} else {
+					ws.Send <- MessageStruct{
+						Type: "error",
+						Payload: map[string]interface{}{
+							"message": "user is not a member of the room",
+						},
+					}
 				}
 			}
 		case "unsubscribe":
 			if msg.RoomID != "" {
-				isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.UserID, msg.RoomID)
-				if err != nil {
-					log.Printf("Error validating user is member of room: %v", err)
-					ws.Send <- MessageStruct{
-						Type: "error",
-						Payload: map[string]interface{}{
-							"message": "user is not a member of the room or room does not exist",
-						},
-					}
-					break
-				}
-				if isMember {
-					ws.Hub.UnsubscribeFromRoom(ws.Connection, msg.RoomID)
-					log.Printf("User %s unsubscribed from room %s", ws.UserID, msg.RoomID)
-				}
+				ws.Hub.UnsubscribeFromRoom(ws.Connection, msg.RoomID)
+				log.Printf("User %s unsubscribed from room %s", ws.UserID, msg.RoomID)
 			}
 		case "ping":
 			ws.Send <- MessageStruct{Type: "pong"}
@@ -184,21 +172,19 @@ func (ws *WSConnection) readPump() {
 				break
 			}
 
-			isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.UserID, msg.RoomID)
+			isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.db, ws.UserID, msg.RoomID)
 			if err != nil {
 				log.Printf("Error validating user is member of room: %v", err)
 				ws.Send <- MessageStruct{
 					Type: "error",
 					Payload: map[string]interface{}{
-						"message": "user is not a member of the room or room does not exist",
+						"message": "error validating user is member of room",
 					},
 				}
 				break
 			}
-			
-			// Save message to database
 
-			if !isMember {
+			if isMember {
 				ws.Hub.Broadcast <- struct {
 					RoomID  string
 					Message MessageStruct
@@ -209,6 +195,13 @@ func (ws *WSConnection) readPump() {
 						Payload: msg.Payload,
 					},
 				}
+			} else {
+				ws.Send <- MessageStruct{
+					Type: "error",
+					Payload: map[string]interface{}{
+						"message": "user is not a member of the room",
+					},
+				}
 			}
 		default:
 			log.Printf("Unknown message type: %s", msg.Type)
@@ -216,7 +209,6 @@ func (ws *WSConnection) readPump() {
 	}
 }
 
-// writePump pumps messages from the hub to the WebSocket connection
 func (ws *WSConnection) writePump() {
 	ticker := time.NewTicker(54 * time.Second)
 	defer func() {
@@ -229,7 +221,6 @@ func (ws *WSConnection) writePump() {
 		case message, ok := <-ws.Send:
 			ws.wsConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if !ok {
-				// Hub closed the channel
 				ws.wsConn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
@@ -240,7 +231,6 @@ func (ws *WSConnection) writePump() {
 			}
 
 		case <-ticker.C:
-			// Send ping to keep connection alive
 			ws.wsConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := ws.wsConn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return

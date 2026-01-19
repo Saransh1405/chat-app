@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// MessageType represents the type of message
 type MessageType string
 
 const (
@@ -16,7 +15,6 @@ const (
 	MessageTypeSystem MessageType = "system"
 )
 
-// Message represents a chat message
 type Message struct {
 	ID          uuid.UUID   `json:"id" db:"id"`
 	RoomID      uuid.UUID   `json:"room_id" db:"room_id"`
@@ -31,7 +29,6 @@ type Message struct {
 	UpdatedAt   time.Time   `json:"updated_at" db:"updated_at"`
 }
 
-// MessageReaction represents a reaction on a message
 type MessageReaction struct {
 	ID        uuid.UUID `json:"id" db:"id"`
 	MessageID uuid.UUID `json:"message_id" db:"message_id"`
@@ -40,7 +37,6 @@ type MessageReaction struct {
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
-// MessageRead represents a read receipt for a message
 type MessageRead struct {
 	ID        uuid.UUID `json:"id" db:"id"`
 	MessageID uuid.UUID `json:"message_id" db:"message_id"`

@@ -6,7 +6,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TypingIndicator represents a typing indicator
 type TypingIndicator struct {
 	ID        uuid.UUID `json:"id" db:"id"`
 	RoomID    uuid.UUID `json:"room_id" db:"room_id"`

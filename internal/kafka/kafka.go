@@ -1,40 +1,52 @@
 package kafka
 
 import (
+	"context"
 	"fmt"
 	"log"
 
 	"github.com/IBM/sarama"
 )
 
-// Kafka wraps IBM Sarama producer for message publishing
+// Kafka wraps IBM Sarama producer and consumer for message publishing & consuming
 type Kafka struct {
 	Producer sarama.SyncProducer
+	Consumer sarama.Consumer
 	Brokers  []string
 }
 
-// NewKafka creates a new Kafka producer instance
+// NewKafka creates a new Kafka producer and consumer instance
 // brokers: list of Kafka broker addresses (e.g., []string{"localhost:9092"})
 func NewKafka(brokers []string) (*Kafka, error) {
 	if len(brokers) == 0 {
 		return nil, fmt.Errorf("at least one Kafka broker address is required")
 	}
 
-	// Configure producer
 	config := sarama.NewConfig()
+	// Producer configuration
 	config.Producer.Return.Successes = true
 	config.Producer.Return.Errors = true
 	config.Producer.RequiredAcks = sarama.WaitForAll
 	config.Producer.Retry.Max = 5
 	config.Producer.Retry.Backoff = 100
+	// Consumer configuration
+	config.Consumer.Group.Rebalance.Strategy = sarama.NewBalanceStrategyRange()
+	config.Consumer.Offsets.Initial = sarama.OffsetNewest
 
 	producer, err := sarama.NewSyncProducer(brokers, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Kafka producer: %w", err)
 	}
 
+	consumer, err := sarama.NewConsumer(brokers, config)
+	if err != nil {
+		producer.Close() // Clean up producer if consumer fails
+		return nil, fmt.Errorf("failed to create Kafka consumer: %w", err)
+	}
+
 	return &Kafka{
 		Producer: producer,
+		Consumer: consumer,
 		Brokers:  brokers,
 	}, nil
 }
@@ -99,11 +111,44 @@ func (k *Kafka) ProduceWithKey(topic string, key string, message []byte) error {
 	return nil
 }
 
-// Close closes the Kafka producer connection
-// Should be called during application shutdown
-func (k *Kafka) Close() error {
-	if k.Producer != nil {
-		return k.Producer.Close()
+// StartConsumer consumes messages from a specific topic and partition
+func (k *Kafka) StartConsumer(topic string, partition int32, offset int64) error {
+	ctx := context.Background()
+
+	if k.Consumer == nil {
+		return fmt.Errorf("Kafka consumer is not initialized")
 	}
-	return nil
+
+	partitionConsumer, err := k.Consumer.ConsumePartition(topic, partition, offset)
+	if err != nil {
+		log.Printf("Failed to create partition consumer: %v", err)
+		return err
+	}
+	defer partitionConsumer.Close()
+
+	for {
+		select {
+		case msg := <-partitionConsumer.Messages():
+			log.Printf("Message received: %v", msg)
+		case err := <-partitionConsumer.Errors():
+			log.Printf("Error from partition consumer: %v", err)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (k *Kafka) Close() error {
+	var firstErr error
+	if k.Producer != nil {
+		if err := k.Producer.Close(); err != nil {
+			firstErr = err
+		}
+	}
+	if k.Consumer != nil {
+		if err := k.Consumer.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }

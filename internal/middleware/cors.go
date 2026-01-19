@@ -7,12 +7,10 @@ import (
 	"chat-app/internal/config"
 )
 
-// CORS middleware handles Cross-Origin Resource Sharing
 func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
-		// Check if origin is allowed
 		allowed := false
 		for _, allowedOrigin := range cfg.AllowedOrigins {
 			if allowedOrigin == "*" || allowedOrigin == origin {
@@ -32,7 +30,6 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 
-		// Handle preflight requests
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
