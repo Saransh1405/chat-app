@@ -17,7 +17,6 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		// allow all origins for now
 		allowedOrigins := []string{"localhost:3000"}
 		for _, origin := range allowedOrigins {
 			if origin == r.Header.Get("Origin") {

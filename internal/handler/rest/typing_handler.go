@@ -21,7 +21,6 @@ func NewTypingHandler(db *database.DB, wsHub *websocket.Hub) *TypingHandler {
 }
 
 func (h *TypingHandler) Create(c *gin.Context) {
-	// TODO: Implement create logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",

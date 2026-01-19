@@ -24,7 +24,6 @@ func NewAuthHandler(cfg *config.Config, db *database.DB) *AuthHandler {
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
-	// TODO: Implement registration logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -80,7 +79,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	// TODO: Implement token refresh logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",

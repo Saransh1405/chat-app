@@ -16,7 +16,6 @@ func NewRoomHandler(db *database.DB) *RoomHandler {
 }
 
 func (h *RoomHandler) Create(c *gin.Context) {
-	// TODO: Implement create logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -26,7 +25,6 @@ func (h *RoomHandler) Create(c *gin.Context) {
 }
 
 func (h *RoomHandler) Get(c *gin.Context) {
-	// TODO: Implement get logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -36,7 +34,6 @@ func (h *RoomHandler) Get(c *gin.Context) {
 }
 
 func (h *RoomHandler) List(c *gin.Context) {
-	// TODO: Implement list logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -46,7 +43,6 @@ func (h *RoomHandler) List(c *gin.Context) {
 }
 
 func (h *RoomHandler) Update(c *gin.Context) {
-	// TODO: Implement update logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -56,7 +52,6 @@ func (h *RoomHandler) Update(c *gin.Context) {
 }
 
 func (h *RoomHandler) Delete(c *gin.Context) {
-	// TODO: Implement delete logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -66,7 +61,6 @@ func (h *RoomHandler) Delete(c *gin.Context) {
 }
 
 func (h *RoomHandler) AddMember(c *gin.Context) {
-	// TODO: Implement add member logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -76,7 +70,6 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 }
 
 func (h *RoomHandler) RemoveMember(c *gin.Context) {
-	// TODO: Implement remove member logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -86,7 +79,6 @@ func (h *RoomHandler) RemoveMember(c *gin.Context) {
 }
 
 func (h *RoomHandler) ListMembers(c *gin.Context) {
-	// TODO: Implement list members logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",

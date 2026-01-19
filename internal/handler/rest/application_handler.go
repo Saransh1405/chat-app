@@ -25,7 +25,6 @@ func NewApplicationHandler(db *database.DB) *ApplicationHandler {
 }
 
 func (h *ApplicationHandler) Create(c *gin.Context) {
-	// Get application data from request body
 	var app models.Application
 	err := c.ShouldBindBodyWithJSON(&app)
 	if err != nil {
@@ -38,7 +37,6 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Validate name
 	if !validator.ValidateNotEmpty(app.Name) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -59,7 +57,6 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Check if application with same name already exists
 	var existingID uuid.UUID
 	checkQuery := `SELECT id FROM applications WHERE name = $1 AND deleted_at IS NULL`
 	err = h.db.QueryRow(checkQuery, app.Name).Scan(&existingID)
@@ -81,7 +78,6 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Generate API key and secret key
 	apiKey, err := helperfunctions.GenerateAPIKey()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -104,14 +100,13 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Ensure API key is unique (retry if collision, though very unlikely)
 	maxRetries := 5
 	for i := 0; i < maxRetries; i++ {
 		var existingAPIKey string
 		apiKeyCheckQuery := `SELECT api_key FROM applications WHERE api_key = $1 AND deleted_at IS NULL`
 		err = h.db.QueryRow(apiKeyCheckQuery, apiKey).Scan(&existingAPIKey)
 		if err == sql.ErrNoRows {
-			break // API key is unique, proceed
+			break
 		} else if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": gin.H{
@@ -121,7 +116,6 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 			})
 			return
 		}
-		// Collision detected, generate new API key
 		if i < maxRetries-1 {
 			apiKey, err = helperfunctions.GenerateAPIKey()
 			if err != nil {
@@ -144,7 +138,6 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		}
 	}
 
-	// Insert application into database
 	insertQuery := `INSERT INTO applications (name, api_key, secret_key, created_at, updated_at) 
 	                VALUES ($1, $2, $3, $4, $5) 
 	                RETURNING id, created_at, updated_at`
@@ -166,7 +159,6 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Fetch created application to return (excluding secret_key from response)
 	fetchQuery := `SELECT id, name, api_key, created_at, updated_at, deleted_at 
 	              FROM applications 
 	              WHERE id = $1 AND deleted_at IS NULL`
@@ -190,14 +182,13 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Return response with secret key only on creation (security: client should store this immediately)
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "Application created successfully",
 		"application": gin.H{
 			"id":         createdApp.ID,
 			"name":       createdApp.Name,
 			"api_key":    createdApp.APIKey,
-			"secret_key": secretKey, // Only returned on creation
+			"secret_key": secretKey,
 			"created_at": createdApp.CreatedAt,
 			"updated_at": createdApp.UpdatedAt,
 		},
@@ -205,7 +196,6 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 }
 
 func (h *ApplicationHandler) Get(c *gin.Context) {
-	// Get application ID from path parameter
 	appID := c.Param("id")
 	if appID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -217,7 +207,6 @@ func (h *ApplicationHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Validate UUID format
 	if !validator.ValidateUUID(appID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -228,7 +217,6 @@ func (h *ApplicationHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Query application from database
 	query := `SELECT id, name, api_key, created_at, updated_at, deleted_at 
 	          FROM applications 
 	          WHERE id = $1 AND deleted_at IS NULL`
@@ -262,7 +250,6 @@ func (h *ApplicationHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Return application (secret_key is not included in response)
 	c.JSON(http.StatusOK, gin.H{
 		"application": gin.H{
 			"id":         app.ID,
@@ -275,7 +262,6 @@ func (h *ApplicationHandler) Get(c *gin.Context) {
 }
 
 func (h *ApplicationHandler) List(c *gin.Context) {
-	// Query all applications from database
 	query := `SELECT id, name, api_key, created_at, updated_at, deleted_at 
 	          FROM applications 
 	          WHERE deleted_at IS NULL 
@@ -340,7 +326,6 @@ func (h *ApplicationHandler) List(c *gin.Context) {
 }
 
 func (h *ApplicationHandler) Update(c *gin.Context) {
-	// Get application ID from path parameter
 	appID := c.Param("id")
 	if appID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -352,7 +337,6 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Validate UUID format
 	if !validator.ValidateUUID(appID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -363,7 +347,6 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Get application data from request body
 	var updateData models.Application
 	err := c.ShouldBindBodyWithJSON(&updateData)
 	if err != nil {
@@ -376,7 +359,6 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Validate name if provided
 	if updateData.Name != "" {
 		if !validator.ValidateLength(updateData.Name, 3, 255) {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -389,7 +371,6 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// Check if application exists
 	var existingID uuid.UUID
 	checkQuery := `SELECT id FROM applications WHERE id = $1 AND deleted_at IS NULL`
 	err = h.db.QueryRow(checkQuery, appID).Scan(&existingID)
@@ -412,7 +393,6 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Check for duplicate name if name is being updated
 	if updateData.Name != "" {
 		var duplicateID uuid.UUID
 		nameCheckQuery := `SELECT id FROM applications WHERE name = $1 AND id != $2 AND deleted_at IS NULL`
@@ -436,7 +416,6 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// Build update query dynamically based on provided fields
 	updateFields := []string{}
 	args := []interface{}{}
 	argIndex := 1
@@ -457,19 +436,15 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Add updated_at
 	updateFields = append(updateFields, fmt.Sprintf("updated_at = $%d", argIndex))
 	args = append(args, time.Now())
 	argIndex++
 
-	// Build WHERE clause
 	whereClause := fmt.Sprintf("WHERE id = $%d AND deleted_at IS NULL", argIndex)
 	args = append(args, appID)
 
-	// Build final query
 	updateQuery := fmt.Sprintf("UPDATE applications SET %s %s", strings.Join(updateFields, ", "), whereClause)
 
-	// Execute update
 	result, err := h.db.Exec(updateQuery, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -502,7 +477,6 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Fetch updated application to return
 	fetchQuery := `SELECT id, name, api_key, created_at, updated_at, deleted_at 
 	              FROM applications 
 	              WHERE id = $1 AND deleted_at IS NULL`
@@ -518,7 +492,6 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 	)
 
 	if err != nil {
-		// If we can't fetch the updated application, still return success but without application data
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Application updated successfully",
 		})
@@ -538,7 +511,6 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 }
 
 func (h *ApplicationHandler) Delete(c *gin.Context) {
-	// Get application ID from path parameter
 	appID := c.Param("id")
 	if appID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -550,7 +522,6 @@ func (h *ApplicationHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Validate UUID format
 	if !validator.ValidateUUID(appID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -561,7 +532,6 @@ func (h *ApplicationHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Check if application exists before soft delete
 	var existingID uuid.UUID
 	checkQuery := `SELECT id FROM applications WHERE id = $1 AND deleted_at IS NULL`
 	err := h.db.QueryRow(checkQuery, appID).Scan(&existingID)
@@ -584,7 +554,6 @@ func (h *ApplicationHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Perform soft delete (set deleted_at timestamp)
 	now := time.Now()
 	deleteQuery := `UPDATE applications SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
 

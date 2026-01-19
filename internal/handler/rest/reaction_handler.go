@@ -21,7 +21,6 @@ func NewReactionHandler(db *database.DB, wsHub *websocket.Hub) *ReactionHandler 
 }
 
 func (h *ReactionHandler) Create(c *gin.Context) {
-	// TODO: Implement create logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -31,7 +30,6 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 }
 
 func (h *ReactionHandler) Delete(c *gin.Context) {
-	// TODO: Implement delete logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",
@@ -41,7 +39,6 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 }
 
 func (h *ReactionHandler) List(c *gin.Context) {
-	// TODO: Implement list logic
 	c.JSON(http.StatusNotImplemented, gin.H{
 		"error": gin.H{
 			"code":    "NOT_IMPLEMENTED",

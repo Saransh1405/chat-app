@@ -31,7 +31,6 @@ func NewMessageHandler(db *database.DB, wsHub *websocket.Hub) *MessageHandler {
 }
 
 func (h *MessageHandler) Create(c *gin.Context) {
-	// Get user ID from auth context
 	userIDStr, exists := c.Get("user_id")
 	if !exists || userIDStr == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -54,7 +53,6 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Get room ID from path parameter
 	roomID := c.Param("room_id")
 	if !validator.ValidateUUID(roomID) {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -66,7 +64,6 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Get application ID from path parameter
 	appID := c.Param("app_id")
 	if !validator.ValidateUUID(appID) {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -78,7 +75,6 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Get message data from request body
 	var messageData models.Message
 	err := c.ShouldBindBodyWithJSON(&messageData)
 	if err != nil {
@@ -91,7 +87,6 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Validate message content
 	if strings.TrimSpace(messageData.Content) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -102,11 +97,9 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Set IDs from context and path
 	userIDUUID := uuid.MustParse(userID)
 	roomIDUUID := uuid.MustParse(roomID)
 
-	// Validate user is member of room
 	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userID, roomID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -130,7 +123,6 @@ func (h *MessageHandler) Create(c *gin.Context) {
 	messageData.UserID = userIDUUID
 	messageData.RoomID = roomIDUUID
 
-	// Set default message type if not provided
 	if messageData.MessageType == "" {
 		messageData.MessageType = models.MessageTypeText
 	}
@@ -146,7 +138,6 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Broadcast message via WebSocket
 	h.wsHub.Broadcast <- struct {
 		RoomID  string
 		Message websocket.MessageStruct
@@ -165,7 +156,6 @@ func (h *MessageHandler) Create(c *gin.Context) {
 }
 
 func (h *MessageHandler) Get(c *gin.Context) {
-	// Get message ID from path parameter
 	messageID := c.Param("message_id")
 	if messageID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -177,7 +167,6 @@ func (h *MessageHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Validate UUID format
 	if !validator.ValidateUUID(messageID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -188,7 +177,6 @@ func (h *MessageHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Get room ID and application ID from path parameters
 	roomID := c.Param("room_id")
 	appID := c.Param("app_id")
 
@@ -212,7 +200,6 @@ func (h *MessageHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Query message from database
 	query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
 	         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
 	         FROM messages m
@@ -258,7 +245,6 @@ func (h *MessageHandler) Get(c *gin.Context) {
 
 	message.ReplyTo = replyToUUID
 
-	// Parse metadata JSON if present
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &message.Metadata); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -277,7 +263,6 @@ func (h *MessageHandler) Get(c *gin.Context) {
 }
 
 func (h *MessageHandler) List(c *gin.Context) {
-	// Get room ID and application ID from path parameters
 	roomID := c.Param("room_id")
 	appID := c.Param("app_id")
 
@@ -301,7 +286,6 @@ func (h *MessageHandler) List(c *gin.Context) {
 		return
 	}
 
-	// Get pagination parameters
 	limitStr := c.DefaultQuery("limit", "50")
 	offsetStr := c.DefaultQuery("offset", "0")
 	limit := 50
@@ -314,7 +298,6 @@ func (h *MessageHandler) List(c *gin.Context) {
 		offset = 0
 	}
 
-	// Query messages from database
 	query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
 	         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
 	         FROM messages m
@@ -396,7 +379,6 @@ func (h *MessageHandler) List(c *gin.Context) {
 }
 
 func (h *MessageHandler) Update(c *gin.Context) {
-	// Get user ID from auth context
 	userIDStr, exists := c.Get("user_id")
 	if !exists || userIDStr == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -419,7 +401,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Get message ID from path parameter
 	messageID := c.Param("message_id")
 	if messageID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -431,7 +412,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Validate UUID format
 	if !validator.ValidateUUID(messageID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -442,7 +422,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Get room ID and application ID from path parameters
 	roomID := c.Param("room_id")
 	appID := c.Param("app_id")
 
@@ -466,7 +445,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Get update data from request body
 	var updateData models.Message
 	err := c.ShouldBindBodyWithJSON(&updateData)
 	if err != nil {
@@ -479,7 +457,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Validate message content if provided
 	if updateData.Content != "" && strings.TrimSpace(updateData.Content) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -490,7 +467,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Check if message exists and belongs to the user
 	checkQuery := `SELECT m.user_id FROM messages m
 	               INNER JOIN rooms r ON m.room_id = r.id
 	               WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
@@ -516,7 +492,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Check if user is the message owner
 	userIDUUID := uuid.MustParse(userID)
 	if existingUserID != userIDUUID {
 		c.JSON(http.StatusForbidden, gin.H{
@@ -528,7 +503,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Build update query dynamically based on provided fields
 	updateFields := []string{}
 	args := []interface{}{}
 	argIndex := 1
@@ -571,7 +545,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Add edited_at and updated_at
 	now := time.Now()
 	updateFields = append(updateFields, fmt.Sprintf("edited_at = $%d", argIndex))
 	args = append(args, now)
@@ -580,14 +553,11 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	args = append(args, now)
 	argIndex++
 
-	// Build WHERE clause
 	whereClause := fmt.Sprintf("WHERE id = $%d AND room_id = $%d AND deleted_at IS NULL", argIndex, argIndex+1)
 	args = append(args, messageID, roomID)
 
-	// Build final query
 	updateQuery := fmt.Sprintf("UPDATE messages SET %s %s", strings.Join(updateFields, ", "), whereClause)
 
-	// Execute update
 	result, err := h.db.Exec(updateQuery, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -620,7 +590,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Fetch updated message
 	fetchQuery := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
 	               m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
 	               FROM messages m
@@ -645,7 +614,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	)
 
 	if err != nil {
-		// If we can't fetch the updated message, still return success
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Message updated successfully",
 		})
@@ -654,10 +622,8 @@ func (h *MessageHandler) Update(c *gin.Context) {
 
 	updatedMessage.ReplyTo = replyToUUID
 
-	// Parse metadata JSON if present
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &updatedMessage.Metadata); err != nil {
-			// Metadata parsing error, but message was updated successfully
 			c.JSON(http.StatusOK, gin.H{
 				"message": "Message updated successfully",
 				"data":    updatedMessage,
@@ -673,7 +639,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 }
 
 func (h *MessageHandler) Delete(c *gin.Context) {
-	// Get user ID from auth context
 	userIDStr, exists := c.Get("user_id")
 	if !exists || userIDStr == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{
@@ -696,7 +661,6 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Get message ID from path parameter
 	messageID := c.Param("message_id")
 	if messageID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -708,7 +672,6 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Validate UUID format
 	if !validator.ValidateUUID(messageID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -719,7 +682,6 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Get room ID and application ID from path parameters
 	roomID := c.Param("room_id")
 	appID := c.Param("app_id")
 
@@ -743,7 +705,6 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Check if message exists and belongs to the user
 	checkQuery := `SELECT m.user_id FROM messages m
 	               INNER JOIN rooms r ON m.room_id = r.id
 	               WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
@@ -769,7 +730,6 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Check if user is the message owner
 	userIDUUID := uuid.MustParse(userID)
 	if existingUserID != userIDUUID {
 		c.JSON(http.StatusForbidden, gin.H{
@@ -781,7 +741,6 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Perform soft delete (set deleted_at timestamp)
 	now := time.Now()
 	deleteQuery := `UPDATE messages SET deleted_at = $1, updated_at = $2 
 	                WHERE id = $3 AND room_id = $4 AND deleted_at IS NULL`
