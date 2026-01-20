@@ -64,7 +64,7 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	appID := c.Param("app_id")
+	appID := c.Param("id")
 	if !validator.ValidateUUID(appID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -178,7 +178,7 @@ func (h *MessageHandler) Get(c *gin.Context) {
 	}
 
 	roomID := c.Param("room_id")
-	appID := c.Param("app_id")
+	appID := c.Param("id")
 
 	if !validator.ValidateUUID(roomID) {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -264,7 +264,7 @@ func (h *MessageHandler) Get(c *gin.Context) {
 
 func (h *MessageHandler) List(c *gin.Context) {
 	roomID := c.Param("room_id")
-	appID := c.Param("app_id")
+	appID := c.Param("id")
 
 	if !validator.ValidateUUID(roomID) {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -349,10 +349,8 @@ func (h *MessageHandler) List(c *gin.Context) {
 
 		message.ReplyTo = replyToUUID
 
-		// Parse metadata JSON if present
 		if len(metadataJSON) > 0 {
 			if err := json.Unmarshal(metadataJSON, &message.Metadata); err != nil {
-				// Log error but don't fail the entire request
 				continue
 			}
 		}
@@ -423,7 +421,7 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	}
 
 	roomID := c.Param("room_id")
-	appID := c.Param("app_id")
+	appID := c.Param("id")
 
 	if !validator.ValidateUUID(roomID) {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -683,7 +681,7 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 	}
 
 	roomID := c.Param("room_id")
-	appID := c.Param("app_id")
+	appID := c.Param("id")
 
 	if !validator.ValidateUUID(roomID) {
 		c.JSON(http.StatusBadRequest, gin.H{

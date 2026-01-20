@@ -27,7 +27,7 @@ func NewUserHandler(db *database.DB) *UserHandler {
 
 func (h *UserHandler) Create(c *gin.Context) {
 	// Get application ID from path
-	appID := c.Param("app_id")
+	appID := c.Param("id")
 
 	// Get user data from request body
 	user := models.User{}
@@ -184,22 +184,10 @@ func (h *UserHandler) DirectCreate(c *gin.Context) {
 }
 
 func (h *UserHandler) Get(c *gin.Context) {
-	userID := c.Param("id")
+	appID := c.Param("id")
 
 	var query string
 	var args []interface{}
-
-	if !validator.ValidateUUID(userID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid user ID format",
-			},
-		})
-		return
-	}
-
-	appID := c.Param("app_id")
 
 	if appID != "" {
 		if !validator.ValidateUUID(appID) {
@@ -211,29 +199,15 @@ func (h *UserHandler) Get(c *gin.Context) {
 			})
 			return
 		}
-		if userID != "" {
-			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
-		         FROM users 
-		         WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-			args = []interface{}{userID, appID}
-		} else {
-			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
+		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 		         FROM users 
 		         WHERE application_id = $1 AND deleted_at IS NULL`
-			args = []interface{}{appID}
-		}
+		args = []interface{}{appID}
 	} else {
-		if userID != "" {
-			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
+		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 		         FROM users 
-		         WHERE id = $1 AND deleted_at IS NULL`
-			args = []interface{}{userID}
-		} else {
-			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
-			         FROM users 
-			         WHERE deleted_at IS NULL`
-			args = []interface{}{}
-		}
+		         WHERE deleted_at IS NULL`
+		args = []interface{}{}
 	}
 
 	user := models.User{}
@@ -288,7 +262,7 @@ func (h *UserHandler) Get(c *gin.Context) {
 }
 
 func (h *UserHandler) Update(c *gin.Context) {
-	userID := c.Param("id")
+	userID := c.Param("user_id")
 	if userID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -309,7 +283,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	appID := c.Param("app_id")
+	appID := c.Param("id")
 
 	var updateData models.User
 	err := c.ShouldBindBodyWithJSON(&updateData)
@@ -599,7 +573,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 }
 
 func (h *UserHandler) Delete(c *gin.Context) {
-	userID := c.Param("id")
+	userID := c.Param("user_id")
 	if userID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -620,7 +594,7 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	appID := c.Param("app_id")
+	appID := c.Param("id")
 
 	var checkQuery string
 	var checkArgs []interface{}

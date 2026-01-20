@@ -3,30 +3,42 @@ package database
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"fmt"
 	"time"
 
 	"chat-app/internal/config"
 
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 type DB struct {
 	*sql.DB
 }
 
 func NewConnection(cfg config.DatabaseConfig) (*DB, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host,
-		cfg.Port,
-		cfg.User,
-		cfg.Password,
-		cfg.Name,
-		cfg.SSLMode,
-	)
+	var dsn string
+	if cfg.Host != "supabase" {
+		dsn = fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			cfg.Host,
+			cfg.Port,
+			cfg.User,
+			cfg.Password,
+			cfg.Name,
+			cfg.SSLMode,
+		)
+	} else {
+		dsn = fmt.Sprintf(
+			"%s",
+			cfg.URL,
+		)
+	}
 
-	db, err := sql.Open("postgres", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
@@ -53,17 +65,25 @@ func (db *DB) Close() error {
 }
 
 func RunMigrations(cfg config.DatabaseConfig) error {
-	dsn := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host,
-		cfg.Port,
-		cfg.User,
-		cfg.Password,
-		cfg.Name,
-		cfg.SSLMode,
-	)
+	var dsn string
+	if cfg.Host != "supabase" {
+		dsn = fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			cfg.Host,
+			cfg.Port,
+			cfg.User,
+			cfg.Password,
+			cfg.Name,
+			cfg.SSLMode,
+		)
+	} else {
+		dsn = fmt.Sprintf(
+			"%s",
+			cfg.URL,
+		)
+	}
 
-	db, err := sql.Open("postgres", dsn)
+	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open database for migrations: %w", err)
 	}
@@ -73,10 +93,60 @@ func RunMigrations(cfg config.DatabaseConfig) error {
 		return fmt.Errorf("failed to ping database for migrations: %w", err)
 	}
 
-	// Read and execute migration files
-	// TODO: Implement migration runner
-	// For now, we'll use a simple approach - migrations will be run manually or via a separate tool
-	// In production, consider using golang-migrate or similar
+	// Create migrations tracking table if it doesn't exist
+	createMigrationTableSQL := `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			id SERIAL PRIMARY KEY,
+			version VARCHAR(255) UNIQUE NOT NULL,
+			applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+		);
+	`
+	if _, err := db.Exec(createMigrationTableSQL); err != nil {
+		return fmt.Errorf("failed to create migrations tracking table: %w", err)
+	}
+
+	migrations := []string{
+		"001_initial_schema.sql",
+	}
+
+	for _, migration := range migrations {
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = $1", migration).Scan(&count)
+		if err != nil {
+			return fmt.Errorf("failed to check migration status for %s: %w", migration, err)
+		}
+
+		if count > 0 {
+			fmt.Printf("Migration %s already applied, skipping\n", migration)
+			continue
+		}
+
+		migrationSQL, err := migrationsFS.ReadFile(fmt.Sprintf("migrations/%s", migration))
+		if err != nil {
+			return fmt.Errorf("failed to read migration file %s: %w", migration, err)
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction for migration %s: %w", migration, err)
+		}
+
+		if _, err := tx.Exec(string(migrationSQL)); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to execute migration %s: %w", migration, err)
+		}
+
+		if _, err := tx.Exec("INSERT INTO schema_migrations (version) VALUES ($1)", migration); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("failed to record migration %s: %w", migration, err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit migration %s: %w", migration, err)
+		}
+
+		fmt.Printf("Migration %s applied successfully\n", migration)
+	}
 
 	return nil
 }

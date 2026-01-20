@@ -14,11 +14,8 @@ import (
 	"chat-app/internal/database"
 	"chat-app/internal/handler/rest"
 	"chat-app/internal/handler/websocket"
-	"chat-app/internal/kafka"
 	"chat-app/internal/middleware"
-	"chat-app/internal/redis"
 
-	"github.com/IBM/sarama"
 	"github.com/gin-gonic/gin"
 )
 
@@ -45,29 +42,29 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	kafka, err := kafka.NewKafka(cfg.Kafka.Brokers)
-	if err != nil {
-		log.Fatalf("Failed to initialize Kafka producer: %v", err)
-	}
-	defer kafka.Close()
+	// kafka, err := kafka.NewKafka(cfg.Kafka.Brokers)
+	// if err != nil {
+	// 	log.Fatalf("Failed to initialize Kafka producer: %v", err)
+	// }
+	// defer kafka.Close()
 
-	go func() {
-		err = kafka.Produce(cfg.Kafka.Topic, []byte("test message"))
-		if err != nil {
-			log.Fatalf("Failed to produce message: %v", err)
-		}
+	// go func() {
+	// 	err = kafka.Produce(cfg.Kafka.Topic, []byte("test message"))
+	// 	if err != nil {
+	// 		log.Fatalf("Failed to produce message: %v", err)
+	// 	}
 
-		err = kafka.StartConsumer(cfg.Kafka.Topic, 0, int64(sarama.OffsetNewest))
-		if err != nil {
-			log.Fatalf("Failed to start Kafka consumer: %v", err)
-		}
-	}()
+	// 	err = kafka.StartConsumer(cfg.Kafka.Topic, 0, int64(sarama.OffsetNewest))
+	// 	if err != nil {
+	// 		log.Fatalf("Failed to start Kafka consumer: %v", err)
+	// 	}
+	// }()
 
-	redisClient, err := redis.NewRedis(cfg.Redis)
-	if err != nil {
-		log.Fatalf("Failed to initialize Redis client: %v", err)
-	}
-	defer redisClient.Client.Close()
+	// redisClient, err := redis.NewRedis(cfg.Redis)
+	// if err != nil {
+	// 	log.Fatalf("Failed to initialize Redis client: %v", err)
+	// }
+	// defer redisClient.Client.Close()
 
 	router := gin.New()
 
@@ -103,15 +100,12 @@ func main() {
 			}
 
 			userHandler := rest.NewUserHandler(db)
-			users := protected.Group("/applications/:app_id/users")
+			users := protected.Group("/applications/:id/users")
 			{
 				users.POST("", userHandler.Create)
-			}
-			users.Use(middleware.Auth(cfg.JWT.Secret))
-			{
 				users.GET("", userHandler.Get)
-				users.PUT("/:id", userHandler.Update)
-				users.DELETE("/:id", userHandler.Delete)
+				users.PUT("/:user_id", userHandler.Update)
+				users.DELETE("/:user_id", userHandler.Delete)
 			}
 
 			directUserHandler := rest.NewUserHandler(db)
@@ -127,22 +121,21 @@ func main() {
 			}
 
 			roomHandler := rest.NewRoomHandler(db)
-			rooms := protected.Group("/applications/:app_id/rooms")
+			rooms := protected.Group("/applications/:id/rooms")
 			{
 				rooms.POST("", roomHandler.Create)
 				rooms.GET("", roomHandler.List)
-				rooms.GET("/:id", roomHandler.Get)
-				rooms.PUT("/:id", roomHandler.Update)
-				rooms.DELETE("/:id", roomHandler.Delete)
-				rooms.POST("/:id/members", roomHandler.AddMember)
-				rooms.DELETE("/:id/members/:user_id", roomHandler.RemoveMember)
-				rooms.GET("/:id/members", roomHandler.ListMembers)
+				rooms.GET("/:room_id", roomHandler.Get)
+				rooms.PUT("/:room_id", roomHandler.Update)
+				rooms.DELETE("/:room_id", roomHandler.Delete)
+				rooms.POST("/:room_id/members", roomHandler.AddMember)
+				rooms.DELETE("/:room_id/members/:user_id", roomHandler.RemoveMember)
+				rooms.GET("/:room_id/members", roomHandler.ListMembers)
 			}
 
 			messageHandler := rest.NewMessageHandler(db, wsHub)
-			messages := protected.Group("/applications/:app_id/rooms/:room_id/messages")
+			messages := protected.Group("/applications/:id/rooms/:room_id/messages")
 			{
-				messages.Use(middleware.Auth(cfg.JWT.Secret))
 				messages.POST("", messageHandler.Create)
 				messages.GET("", messageHandler.List)
 				messages.GET("/:message_id", messageHandler.Get)
@@ -151,7 +144,7 @@ func main() {
 			}
 
 			reactionHandler := rest.NewReactionHandler(db, wsHub)
-			reactions := protected.Group("/applications/:app_id/messages/:message_id/reactions")
+			reactions := protected.Group("/applications/:id/messages/:message_id/reactions")
 			{
 				reactions.POST("", reactionHandler.Create)
 				reactions.DELETE("/:reaction_id", reactionHandler.Delete)
@@ -159,7 +152,7 @@ func main() {
 			}
 
 			typingHandler := rest.NewTypingHandler(db, wsHub)
-			typing := protected.Group("/applications/:app_id/rooms/:room_id/typing")
+			typing := protected.Group("/applications/:id/rooms/:room_id/typing")
 			{
 				typing.POST("", typingHandler.Create)
 			}

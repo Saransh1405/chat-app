@@ -295,3 +295,30 @@ func CheckIfApplicationExistsWithId(db *database.DB, applicationId string) bool 
 
 	return count > 0
 }
+
+func SaveTypingIndicatorToDB(db *database.DB, typing *models.TypingIndicator) (*models.TypingIndicator, error) {
+	query := `INSERT INTO typing_indicators (room_id, user_id, expires_at, created_at, updated_at)
+	          VALUES ($1, $2, $3, $4, $5)
+	          RETURNING id, room_id, user_id, created_at, expires_at`
+
+	now := time.Now()
+	var err error
+
+	err = db.QueryRow(query,
+		typing.RoomID,
+		typing.UserID,
+		typing.ExpiresAt,
+		now,
+		now,
+	).Scan(&typing.ID, &typing.RoomID, &typing.UserID, &typing.CreatedAt, &typing.ExpiresAt)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return typing, nil
+}
+
+func ExpireTypingIndicator(db *database.DB, typing *models.TypingIndicator) error {
+	return nil
+}

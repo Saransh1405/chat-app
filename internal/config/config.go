@@ -31,6 +31,7 @@ type DatabaseConfig struct {
 	User                  string
 	Password              string
 	Name                  string
+	URL                   string
 	SSLMode               string
 	MaxConnections        int
 	MaxIdleConnections    int
@@ -82,6 +83,7 @@ func Load() (*Config, error) {
 			Port:                  getEnv("DB_PORT", "5432"),
 			User:                  getEnv("DB_USER", "chat_app_user"),
 			Password:              getEnv("DB_PASSWORD", "chat_app_password"),
+			URL:                   getEnv("DB_URL", ""),
 			Name:                  getEnv("DB_NAME", "chat_app_db"),
 			SSLMode:               getEnv("DB_SSL_MODE", "disable"),
 			MaxConnections:        getEnvAsInt("DB_MAX_CONNECTIONS", 25),
@@ -108,7 +110,7 @@ func Load() (*Config, error) {
 		},
 		FileStorage: FileStorageConfig{
 			Path:             getEnv("FILE_STORAGE_PATH", "./uploads"),
-			MaxFileSize:      getEnvAsInt64("MAX_FILE_SIZE", 10485760), 
+			MaxFileSize:      getEnvAsInt64("MAX_FILE_SIZE", 10485760),
 			AllowedFileTypes: getEnvAsSlice("ALLOWED_FILE_TYPES", []string{"image/jpeg", "image/png", "image/gif", "application/pdf", "text/plain"}),
 		},
 		Kafka: KafkaConfig{
