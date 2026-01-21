@@ -93,66 +93,51 @@ func main() {
 			apps := protected.Group("/applications")
 			{
 				apps.POST("", appHandler.Create)
-				apps.GET("", appHandler.List)
-				apps.GET("/:id", appHandler.Get)
-				apps.PUT("/:id", appHandler.Update)
-				apps.DELETE("/:id", appHandler.Delete)
+				apps.GET("", appHandler.Get)
+				apps.PATCH("", appHandler.Update)
+				apps.DELETE("", appHandler.Delete)
 			}
 
 			userHandler := rest.NewUserHandler(db)
-			users := protected.Group("/applications/:id/users")
+			users := protected.Group("/users")
 			{
 				users.POST("", userHandler.Create)
 				users.GET("", userHandler.Get)
-				users.PUT("/:user_id", userHandler.Update)
-				users.DELETE("/:user_id", userHandler.Delete)
-			}
-
-			directUserHandler := rest.NewUserHandler(db)
-			directUsers := protected.Group("/users")
-			{
-				directUsers.POST("", directUserHandler.Create)
-			}
-			directUsers.Use(middleware.Auth(cfg.JWT.Secret))
-			{
-				directUsers.GET("", directUserHandler.Get)
-				directUsers.PUT("/:id", directUserHandler.Update)
-				directUsers.DELETE("/:id", directUserHandler.Delete)
+				users.PATCH("", userHandler.Update)
+				users.DELETE("", userHandler.Delete)
 			}
 
 			roomHandler := rest.NewRoomHandler(db)
-			rooms := protected.Group("/applications/:id/rooms")
+			rooms := protected.Group("/rooms")
 			{
 				rooms.POST("", roomHandler.Create)
 				rooms.GET("", roomHandler.List)
-				rooms.GET("/:room_id", roomHandler.Get)
-				rooms.PUT("/:room_id", roomHandler.Update)
-				rooms.DELETE("/:room_id", roomHandler.Delete)
-				rooms.POST("/:room_id/members", roomHandler.AddMember)
-				rooms.DELETE("/:room_id/members/:user_id", roomHandler.RemoveMember)
-				rooms.GET("/:room_id/members", roomHandler.ListMembers)
+				rooms.PATCH("", roomHandler.Update)
+				rooms.DELETE("", roomHandler.Delete)
+				rooms.POST("/members", roomHandler.AddMember)
+				rooms.DELETE("/members", roomHandler.RemoveMember)
+				rooms.GET("/members", roomHandler.ListMembers)
 			}
 
 			messageHandler := rest.NewMessageHandler(db, wsHub)
-			messages := protected.Group("/applications/:id/rooms/:room_id/messages")
+			messages := protected.Group("/messages")
 			{
 				messages.POST("", messageHandler.Create)
 				messages.GET("", messageHandler.List)
-				messages.GET("/:message_id", messageHandler.Get)
-				messages.PUT("/:message_id", messageHandler.Update)
-				messages.DELETE("/:message_id", messageHandler.Delete)
+				messages.PATCH("", messageHandler.Update)
+				messages.DELETE("", messageHandler.Delete)
 			}
 
 			reactionHandler := rest.NewReactionHandler(db, wsHub)
-			reactions := protected.Group("/applications/:id/messages/:message_id/reactions")
+			reactions := protected.Group("/reactions")
 			{
 				reactions.POST("", reactionHandler.Create)
-				reactions.DELETE("/:reaction_id", reactionHandler.Delete)
+				reactions.DELETE("", reactionHandler.Delete)
 				reactions.GET("", reactionHandler.List)
 			}
 
 			typingHandler := rest.NewTypingHandler(db, wsHub)
-			typing := protected.Group("/applications/:id/rooms/:room_id/typing")
+			typing := protected.Group("/typing")
 			{
 				typing.POST("", typingHandler.Create)
 			}

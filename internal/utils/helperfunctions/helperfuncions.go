@@ -279,21 +279,29 @@ func CheckIfUserExistsWithId(db *database.DB, userId string) bool {
 	return count > 0
 }
 
-func CheckIfApplicationExistsWithId(db *database.DB, applicationId string) bool {
+func CheckIfApplicationExistsWithId(db *database.DB, applicationId string) (bool, *models.Application) {
 	appIDUUID, err := uuid.Parse(applicationId)
 	if err != nil {
-		return false
+		return false, nil
 	}
 
-	query := `SELECT COUNT(*) FROM applications WHERE id = $1 AND deleted_at IS NULL`
+	query := `SELECT id, name, api_key, secret_key, created_at, updated_at, deleted_at FROM applications WHERE id = $1 AND deleted_at IS NULL`
 
-	var count int
-	err = db.QueryRow(query, appIDUUID).Scan(&count)
+	app := &models.Application{}
+	err = db.QueryRow(query, appIDUUID).Scan(
+		&app.ID,
+		&app.Name,
+		&app.APIKey,
+		&app.SecretKey,
+		&app.CreatedAt,
+		&app.UpdatedAt,
+		&app.DeletedAt,
+	)
 	if err != nil {
-		return false
+		return false, nil
 	}
 
-	return count > 0
+	return true, app
 }
 
 func SaveTypingIndicatorToDB(db *database.DB, typing *models.TypingIndicator) (*models.TypingIndicator, error) {

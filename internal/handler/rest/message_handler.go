@@ -53,31 +53,8 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	roomID := c.Param("room_id")
-	if !validator.ValidateUUID(roomID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid room ID format",
-			},
-		})
-		return
-	}
-
-	appID := c.Param("id")
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID format",
-			},
-		})
-		return
-	}
-
-	var messageData models.Message
-	err := c.ShouldBindBodyWithJSON(&messageData)
-	if err != nil {
+	var req models.MessageCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
@@ -87,7 +64,7 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if strings.TrimSpace(messageData.Content) == "" {
+	if strings.TrimSpace(req.Content) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
@@ -97,10 +74,24 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	userIDUUID := uuid.MustParse(userID)
-	roomIDUUID := uuid.MustParse(roomID)
+	appID := ""
+	if req.ApplicationID != nil {
+		appID = req.ApplicationID.String()
+		if !validator.ValidateUUID(appID) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": gin.H{
+					"code":    "BAD_REQUEST",
+					"message": "Invalid application ID format",
+				},
+			})
+			return
+		}
+	}
 
-	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userID, roomID)
+	userIDUUID := uuid.MustParse(userID)
+	roomIDUUID := req.RoomID
+
+	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userID, req.RoomID.String())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
@@ -120,8 +111,14 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	messageData.UserID = userIDUUID
-	messageData.RoomID = roomIDUUID
+	messageData := models.Message{
+		UserID:      userIDUUID,
+		RoomID:      roomIDUUID,
+		Content:     req.Content,
+		MessageType: req.MessageType,
+		ReplyTo:     req.ReplyTo,
+		Metadata:    req.Metadata,
+	}
 
 	if messageData.MessageType == "" {
 		messageData.MessageType = models.MessageTypeText
@@ -156,7 +153,10 @@ func (h *MessageHandler) Create(c *gin.Context) {
 }
 
 func (h *MessageHandler) Get(c *gin.Context) {
-	messageID := c.Param("message_id")
+	messageID := c.Query("id")
+	roomID := c.Query("room_id")
+	appID := c.Query("application_id")
+
 	if messageID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -177,8 +177,15 @@ func (h *MessageHandler) Get(c *gin.Context) {
 		return
 	}
 
-	roomID := c.Param("room_id")
-	appID := c.Param("id")
+	if roomID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "BAD_REQUEST",
+				"message": "Room ID is required",
+			},
+		})
+		return
+	}
 
 	if !validator.ValidateUUID(roomID) {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -190,27 +197,38 @@ func (h *MessageHandler) Get(c *gin.Context) {
 		return
 	}
 
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID format",
-			},
-		})
-		return
-	}
+	var query string
+	var args []interface{}
 
-	query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
-	         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
-	         FROM messages m
-	         INNER JOIN rooms r ON m.room_id = r.id
-	         WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
+	if appID != "" {
+		if !validator.ValidateUUID(appID) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": gin.H{
+					"code":    "BAD_REQUEST",
+					"message": "Invalid application ID format",
+				},
+			})
+			return
+		}
+		query = `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
+		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
+		         FROM messages m
+		         INNER JOIN rooms r ON m.room_id = r.id
+		         WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
+		args = []interface{}{messageID, roomID, appID}
+	} else {
+		query = `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
+		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
+		         FROM messages m
+		         WHERE m.id = $1 AND m.room_id = $2 AND m.deleted_at IS NULL`
+		args = []interface{}{messageID, roomID}
+	}
 
 	message := models.Message{}
 	var metadataJSON []byte
 	var replyToUUID *uuid.UUID
 
-	err := h.db.QueryRow(query, messageID, roomID, appID).Scan(
+	err := h.db.QueryRow(query, args...).Scan(
 		&message.ID,
 		&message.RoomID,
 		&message.UserID,
@@ -263,24 +281,24 @@ func (h *MessageHandler) Get(c *gin.Context) {
 }
 
 func (h *MessageHandler) List(c *gin.Context) {
-	roomID := c.Param("room_id")
-	appID := c.Param("id")
+	roomID := c.Query("room_id")
+	appID := c.Query("application_id")
+
+	if roomID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{
+				"code":    "BAD_REQUEST",
+				"message": "Room ID is required",
+			},
+		})
+		return
+	}
 
 	if !validator.ValidateUUID(roomID) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
 				"message": "Invalid room ID format",
-			},
-		})
-		return
-	}
-
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID format",
 			},
 		})
 		return
@@ -298,15 +316,38 @@ func (h *MessageHandler) List(c *gin.Context) {
 		offset = 0
 	}
 
-	query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
-	         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
-	         FROM messages m
-	         INNER JOIN rooms r ON m.room_id = r.id
-	         WHERE m.room_id = $1 AND r.application_id = $2 AND m.deleted_at IS NULL
-	         ORDER BY m.created_at DESC
-	         LIMIT $3 OFFSET $4`
+	var rows *sql.Rows
+	var err error
 
-	rows, err := h.db.Query(query, roomID, appID, limit, offset)
+	if appID != "" {
+		if !validator.ValidateUUID(appID) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": gin.H{
+					"code":    "BAD_REQUEST",
+					"message": "Invalid application ID format",
+				},
+			})
+			return
+		}
+		query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
+		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
+		         FROM messages m
+		         INNER JOIN rooms r ON m.room_id = r.id
+		         WHERE m.room_id = $1 AND r.application_id = $2 AND m.deleted_at IS NULL
+		         ORDER BY m.created_at DESC
+		         LIMIT $3 OFFSET $4`
+
+		rows, err = h.db.Query(query, roomID, appID, limit, offset)
+	} else {
+		query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
+		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
+		         FROM messages m
+		         WHERE m.room_id = $1 AND m.deleted_at IS NULL
+		         ORDER BY m.created_at DESC
+		         LIMIT $2 OFFSET $3`
+
+		rows, err = h.db.Query(query, roomID, limit, offset)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
@@ -399,53 +440,8 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	messageID := c.Param("message_id")
-	if messageID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Message ID is required",
-			},
-		})
-		return
-	}
-
-	if !validator.ValidateUUID(messageID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid message ID format",
-			},
-		})
-		return
-	}
-
-	roomID := c.Param("room_id")
-	appID := c.Param("id")
-
-	if !validator.ValidateUUID(roomID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid room ID format",
-			},
-		})
-		return
-	}
-
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID format",
-			},
-		})
-		return
-	}
-
-	var updateData models.Message
-	err := c.ShouldBindBodyWithJSON(&updateData)
-	if err != nil {
+	var req models.MessageUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
@@ -455,7 +451,7 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if updateData.Content != "" && strings.TrimSpace(updateData.Content) == "" {
+	if req.Content != "" && strings.TrimSpace(req.Content) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
@@ -465,12 +461,21 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		return
 	}
 
-	checkQuery := `SELECT m.user_id FROM messages m
-	               INNER JOIN rooms r ON m.room_id = r.id
-	               WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
-
+	appID := req.ApplicationID
+	var checkQuery string
 	var existingUserID uuid.UUID
-	err = h.db.QueryRow(checkQuery, messageID, roomID, appID).Scan(&existingUserID)
+	var err error
+
+	if appID == nil {
+		checkQuery = `SELECT m.user_id FROM messages m
+		               WHERE m.id = $1 AND m.room_id = $2 AND m.deleted_at IS NULL`
+		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID).Scan(&existingUserID)
+	} else {
+		checkQuery = `SELECT m.user_id FROM messages m
+		               INNER JOIN rooms r ON m.room_id = r.id
+		               WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
+		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID, appID).Scan(&existingUserID)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -505,20 +510,20 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	args := []interface{}{}
 	argIndex := 1
 
-	if updateData.Content != "" {
+	if req.Content != "" {
 		updateFields = append(updateFields, fmt.Sprintf("content = $%d", argIndex))
-		args = append(args, updateData.Content)
+		args = append(args, req.Content)
 		argIndex++
 	}
 
-	if updateData.MessageType != "" {
+	if req.MessageType != "" {
 		updateFields = append(updateFields, fmt.Sprintf("message_type = $%d", argIndex))
-		args = append(args, updateData.MessageType)
+		args = append(args, req.MessageType)
 		argIndex++
 	}
 
-	if updateData.Metadata != nil {
-		metadataJSON, err := json.Marshal(updateData.Metadata)
+	if req.Metadata != nil {
+		metadataJSON, err := json.Marshal(req.Metadata)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": gin.H{
@@ -552,7 +557,7 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	argIndex++
 
 	whereClause := fmt.Sprintf("WHERE id = $%d AND room_id = $%d AND deleted_at IS NULL", argIndex, argIndex+1)
-	args = append(args, messageID, roomID)
+	args = append(args, req.ID, req.RoomID)
 
 	updateQuery := fmt.Sprintf("UPDATE messages SET %s %s", strings.Join(updateFields, ", "), whereClause)
 
@@ -597,7 +602,7 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	var metadataJSON []byte
 	var replyToUUID *uuid.UUID
 
-	err = h.db.QueryRow(fetchQuery, messageID, roomID).Scan(
+	err = h.db.QueryRow(fetchQuery, req.ID, req.RoomID).Scan(
 		&updatedMessage.ID,
 		&updatedMessage.RoomID,
 		&updatedMessage.UserID,
@@ -659,56 +664,32 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	messageID := c.Param("message_id")
-	if messageID == "" {
+	var req models.MessageDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
-				"message": "Message ID is required",
+				"message": "Invalid request body",
 			},
 		})
 		return
 	}
 
-	if !validator.ValidateUUID(messageID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid message ID format",
-			},
-		})
-		return
-	}
-
-	roomID := c.Param("room_id")
-	appID := c.Param("id")
-
-	if !validator.ValidateUUID(roomID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid room ID format",
-			},
-		})
-		return
-	}
-
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID format",
-			},
-		})
-		return
-	}
-
-	checkQuery := `SELECT m.user_id FROM messages m
-	               INNER JOIN rooms r ON m.room_id = r.id
-	               WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
-
+	appID := req.ApplicationID
+	var checkQuery string
 	var existingUserID uuid.UUID
-	err := h.db.QueryRow(checkQuery, messageID, roomID, appID).Scan(&existingUserID)
+	var err error
+
+	if appID == nil {
+		checkQuery = `SELECT m.user_id FROM messages m
+		               WHERE m.id = $1 AND m.room_id = $2 AND m.deleted_at IS NULL`
+		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID).Scan(&existingUserID)
+	} else {
+		checkQuery = `SELECT m.user_id FROM messages m
+		               INNER JOIN rooms r ON m.room_id = r.id
+		               WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
+		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID, appID).Scan(&existingUserID)
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -743,7 +724,7 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 	deleteQuery := `UPDATE messages SET deleted_at = $1, updated_at = $2 
 	                WHERE id = $3 AND room_id = $4 AND deleted_at IS NULL`
 
-	result, err := h.db.Exec(deleteQuery, now, now, messageID, roomID)
+	result, err := h.db.Exec(deleteQuery, now, now, req.ID, req.RoomID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{

@@ -25,9 +25,8 @@ func NewApplicationHandler(db *database.DB) *ApplicationHandler {
 }
 
 func (h *ApplicationHandler) Create(c *gin.Context) {
-	var app models.Application
-	err := c.ShouldBindBodyWithJSON(&app)
-	if err != nil {
+	var req models.ApplicationCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
@@ -37,7 +36,7 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if !validator.ValidateNotEmpty(app.Name) {
+	if !validator.ValidateNotEmpty(req.Name) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
@@ -47,7 +46,7 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if !validator.ValidateLength(app.Name, 3, 255) {
+	if !validator.ValidateLength(req.Name, 3, 255) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
@@ -57,9 +56,11 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
+	app := models.Application{Name: req.Name}
+
 	var existingID uuid.UUID
 	checkQuery := `SELECT id FROM applications WHERE name = $1 AND deleted_at IS NULL`
-	err = h.db.QueryRow(checkQuery, app.Name).Scan(&existingID)
+	err := h.db.QueryRow(checkQuery, req.Name).Scan(&existingID)
 	if err == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
@@ -144,7 +145,7 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 
 	now := time.Now()
 	var appID uuid.UUID
-	err = h.db.QueryRow(insertQuery, app.Name, apiKey, secretKey, now, now).Scan(
+	err = h.db.QueryRow(insertQuery, req.Name, apiKey, secretKey, now, now).Scan(
 		&appID,
 		&app.CreatedAt,
 		&app.UpdatedAt,
@@ -196,69 +197,64 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 }
 
 func (h *ApplicationHandler) Get(c *gin.Context) {
-	appID := c.Param("id")
-	if appID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Application ID is required",
-			},
-		})
-		return
-	}
-
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID format",
-			},
-		})
-		return
-	}
-
-	query := `SELECT id, name, api_key, created_at, updated_at, deleted_at 
-	          FROM applications 
-	          WHERE id = $1 AND deleted_at IS NULL`
-
-	app := models.Application{}
-	err := h.db.QueryRow(query, appID).Scan(
-		&app.ID,
-		&app.Name,
-		&app.APIKey,
-		&app.CreatedAt,
-		&app.UpdatedAt,
-		&app.DeletedAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
+	appID := c.Query("id")
+	if appID != "" {
+		if !validator.ValidateUUID(appID) {
+			c.JSON(http.StatusBadRequest, gin.H{
 				"error": gin.H{
-					"code":    "APPLICATION_NOT_FOUND",
-					"message": "Application not found",
+					"code":    "BAD_REQUEST",
+					"message": "Invalid application ID format",
 				},
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve application",
+
+		query := `SELECT id, name, api_key, created_at, updated_at, deleted_at 
+		          FROM applications 
+		          WHERE id = $1 AND deleted_at IS NULL`
+
+		app := models.Application{}
+		err := h.db.QueryRow(query, appID).Scan(
+			&app.ID,
+			&app.Name,
+			&app.APIKey,
+			&app.CreatedAt,
+			&app.UpdatedAt,
+			&app.DeletedAt,
+		)
+
+		if err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": gin.H{
+						"code":    "APPLICATION_NOT_FOUND",
+						"message": "Application not found",
+					},
+				})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": gin.H{
+					"code":    "INTERNAL_SERVER_ERROR",
+					"message": "Failed to retrieve application",
+				},
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"application": gin.H{
+				"id":         app.ID,
+				"name":       app.Name,
+				"api_key":    app.APIKey,
+				"created_at": app.CreatedAt,
+				"updated_at": app.UpdatedAt,
 			},
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"application": gin.H{
-			"id":         app.ID,
-			"name":       app.Name,
-			"api_key":    app.APIKey,
-			"created_at": app.CreatedAt,
-			"updated_at": app.UpdatedAt,
-		},
-	})
+	h.List(c)
 }
 
 func (h *ApplicationHandler) List(c *gin.Context) {
@@ -326,30 +322,8 @@ func (h *ApplicationHandler) List(c *gin.Context) {
 }
 
 func (h *ApplicationHandler) Update(c *gin.Context) {
-	appID := c.Param("id")
-	if appID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Application ID is required",
-			},
-		})
-		return
-	}
-
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID format",
-			},
-		})
-		return
-	}
-
-	var updateData models.Application
-	err := c.ShouldBindBodyWithJSON(&updateData)
-	if err != nil {
+	var req models.ApplicationUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
@@ -359,8 +333,8 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if updateData.Name != "" {
-		if !validator.ValidateLength(updateData.Name, 3, 255) {
+	if req.Name != "" {
+		if !validator.ValidateLength(req.Name, 3, 255) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": gin.H{
 					"code":    "BAD_REQUEST",
@@ -373,7 +347,7 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 
 	var existingID uuid.UUID
 	checkQuery := `SELECT id FROM applications WHERE id = $1 AND deleted_at IS NULL`
-	err = h.db.QueryRow(checkQuery, appID).Scan(&existingID)
+	err := h.db.QueryRow(checkQuery, req.ID).Scan(&existingID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -393,10 +367,10 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if updateData.Name != "" {
+	if req.Name != "" {
 		var duplicateID uuid.UUID
 		nameCheckQuery := `SELECT id FROM applications WHERE name = $1 AND id != $2 AND deleted_at IS NULL`
-		err = h.db.QueryRow(nameCheckQuery, updateData.Name, appID).Scan(&duplicateID)
+		err = h.db.QueryRow(nameCheckQuery, req.Name, req.ID).Scan(&duplicateID)
 		if err == nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": gin.H{
@@ -420,9 +394,9 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 	args := []interface{}{}
 	argIndex := 1
 
-	if updateData.Name != "" {
+	if req.Name != "" {
 		updateFields = append(updateFields, fmt.Sprintf("name = $%d", argIndex))
-		args = append(args, updateData.Name)
+		args = append(args, req.Name)
 		argIndex++
 	}
 
@@ -441,7 +415,7 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 	argIndex++
 
 	whereClause := fmt.Sprintf("WHERE id = $%d AND deleted_at IS NULL", argIndex)
-	args = append(args, appID)
+	args = append(args, req.ID)
 
 	updateQuery := fmt.Sprintf("UPDATE applications SET %s %s", strings.Join(updateFields, ", "), whereClause)
 
@@ -482,7 +456,7 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 	              WHERE id = $1 AND deleted_at IS NULL`
 
 	updatedApp := models.Application{}
-	err = h.db.QueryRow(fetchQuery, appID).Scan(
+	err = h.db.QueryRow(fetchQuery, req.ID).Scan(
 		&updatedApp.ID,
 		&updatedApp.Name,
 		&updatedApp.APIKey,
@@ -511,26 +485,18 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 }
 
 func (h *ApplicationHandler) Delete(c *gin.Context) {
-	appID := c.Param("id")
-	if appID == "" {
+	var req models.ApplicationDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
-				"message": "Application ID is required",
+				"message": "Invalid request body",
 			},
 		})
 		return
 	}
 
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID format",
-			},
-		})
-		return
-	}
+	appID := req.ID.String()
 
 	var existingID uuid.UUID
 	checkQuery := `SELECT id FROM applications WHERE id = $1 AND deleted_at IS NULL`
@@ -557,7 +523,7 @@ func (h *ApplicationHandler) Delete(c *gin.Context) {
 	now := time.Now()
 	deleteQuery := `UPDATE applications SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
 
-	result, err := h.db.Exec(deleteQuery, now, now, appID)
+	result, err := h.db.Exec(deleteQuery, now, now, req.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{

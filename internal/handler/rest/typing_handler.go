@@ -11,7 +11,6 @@ import (
 	"chat-app/internal/utils/validator"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type TypingHandler struct {
@@ -27,37 +26,29 @@ func NewTypingHandler(db *database.DB, wsHub *websocket.Hub) *TypingHandler {
 }
 
 func (h *TypingHandler) Create(c *gin.Context) {
-	userID := c.Param("user_id")
-	if !validator.ValidateUUID(userID) {
+	var req models.TypingCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": gin.H{
 				"code":    "BAD_REQUEST",
-				"message": "Invalid room ID format",
+				"message": "Invalid request body",
 			},
 		})
 		return
 	}
 
-	roomID := c.Param("room_id")
-	if !validator.ValidateUUID(roomID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid room ID format",
-			},
-		})
-		return
-	}
-
-	appID := c.Param("id")
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID format",
-			},
-		})
-		return
+	appID := ""
+	if req.ApplicationID != nil {
+		appID = req.ApplicationID.String()
+		if !validator.ValidateUUID(appID) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": gin.H{
+					"code":    "BAD_REQUEST",
+					"message": "Invalid application ID format",
+				},
+			})
+			return
+		}
 	}
 
 	if appID != "" {
@@ -74,7 +65,7 @@ func (h *TypingHandler) Create(c *gin.Context) {
 		}
 
 		room := models.Room{}
-		err = h.db.QueryRow("SELECT id FROM rooms WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL", roomID, appID).Scan(&room.ID)
+		err = h.db.QueryRow("SELECT id FROM rooms WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL", req.RoomID, appID).Scan(&room.ID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -86,7 +77,7 @@ func (h *TypingHandler) Create(c *gin.Context) {
 		}
 
 		user := models.User{}
-		err = h.db.QueryRow("SELECT id FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL", userID, appID).Scan(&user.ID)
+		err = h.db.QueryRow("SELECT id FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL", req.UserID, appID).Scan(&user.ID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -98,7 +89,7 @@ func (h *TypingHandler) Create(c *gin.Context) {
 		}
 	} else {
 		user := models.User{}
-		err := h.db.QueryRow("SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL", userID).Scan(&user.ID)
+		err := h.db.QueryRow("SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL", req.UserID).Scan(&user.ID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -110,7 +101,7 @@ func (h *TypingHandler) Create(c *gin.Context) {
 		}
 
 		room := models.Room{}
-		err = h.db.QueryRow("SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL", roomID).Scan(&room.ID)
+		err = h.db.QueryRow("SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL", req.RoomID).Scan(&room.ID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -122,7 +113,7 @@ func (h *TypingHandler) Create(c *gin.Context) {
 		}
 
 		member := models.RoomMember{}
-		err = h.db.QueryRow("SELECT id FROM room_members WHERE user_id = $1 AND room_id = $2 AND deleted_at IS NULL", userID, roomID).Scan(&member.ID)
+		err = h.db.QueryRow("SELECT id FROM room_members WHERE user_id = $1 AND room_id = $2 AND deleted_at IS NULL", req.UserID, req.RoomID).Scan(&member.ID)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error": gin.H{
@@ -135,8 +126,8 @@ func (h *TypingHandler) Create(c *gin.Context) {
 	}
 
 	typing := models.TypingIndicator{
-		RoomID:    uuid.MustParse(roomID),
-		UserID:    uuid.MustParse(userID),
+		RoomID:    req.RoomID,
+		UserID:    req.UserID,
 		ExpiresAt: time.Now().Add(10 * time.Second),
 	}
 
