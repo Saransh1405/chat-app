@@ -3,9 +3,11 @@ package rest
 import (
 	"net/http"
 
-	"github.com/gin-gonic/gin"
 	"chat-app/internal/database"
 	"chat-app/internal/handler/websocket"
+	"chat-app/internal/utils/errors"
+
+	"github.com/gin-gonic/gin"
 )
 
 type ReactionHandler struct {
@@ -21,29 +23,16 @@ func NewReactionHandler(db *database.DB, wsHub *websocket.Hub) *ReactionHandler 
 }
 
 func (h *ReactionHandler) Create(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": gin.H{
-			"code":    "NOT_IMPLEMENTED",
-			"message": "Create reaction endpoint not yet implemented",
-		},
-	})
+	errors.RespondWithError(c, http.StatusNotImplemented, errors.ErrCodeInternalError,
+		"Create reaction endpoint not yet implemented", nil)
 }
 
 func (h *ReactionHandler) Delete(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": gin.H{
-			"code":    "NOT_IMPLEMENTED",
-			"message": "Delete reaction endpoint not yet implemented",
-		},
-	})
+	errors.RespondWithError(c, http.StatusNotImplemented, errors.ErrCodeInternalError,
+		"Delete reaction endpoint not yet implemented", nil)
 }
 
 func (h *ReactionHandler) List(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{
-		"error": gin.H{
-			"code":    "NOT_IMPLEMENTED",
-			"message": "List reactions endpoint not yet implemented",
-		},
-	})
+	errors.RespondWithError(c, http.StatusNotImplemented, errors.ErrCodeInternalError,
+		"List reactions endpoint not yet implemented", nil)
 }
-

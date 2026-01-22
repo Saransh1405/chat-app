@@ -128,3 +128,21 @@ type RoomRemoveMemberRequest struct {
 	RoomID        uuid.UUID  `json:"room_id" binding:"required"`
 	UserID        uuid.UUID  `json:"user_id" binding:"required"`
 }
+
+// Auth Request Models
+type RegisterRequest struct {
+	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
+	ExternalID    string     `json:"external_id,omitempty"`
+	Username      string     `json:"username" binding:"required"`
+	Email         *string    `json:"email" binding:"required"`
+	AvatarURL     *string    `json:"avatar_url,omitempty"`
+	Metadata      JSONB      `json:"metadata,omitempty"`
+}
+
+type LoginRequest struct {
+	Email string `json:"email" binding:"required"`
+}
+
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}

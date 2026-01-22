@@ -9,6 +9,7 @@ import (
 
 	"chat-app/internal/database"
 	"chat-app/internal/models"
+	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
 	"chat-app/internal/utils/validator"
 
@@ -27,32 +28,39 @@ func NewApplicationHandler(db *database.DB) *ApplicationHandler {
 func (h *ApplicationHandler) Create(c *gin.Context) {
 	var req models.ApplicationCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
 	if !validator.ValidateNotEmpty(req.Name) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Application name is required",
+		details := []errors.ErrorDetail{
+			{
+				Field: "name",
+				Issue: "Application name is required",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Application name is required", details)
 		return
 	}
 
 	if !validator.ValidateLength(req.Name, 3, 255) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Application name must be between 3 and 255 characters",
+		details := []errors.ErrorDetail{
+			{
+				Field: "name",
+				Issue: "Application name must be between 3 and 255 characters",
+				Value: req.Name,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Application name must be between 3 and 255 characters", details)
 		return
 	}
 
@@ -62,42 +70,26 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 	checkQuery := `SELECT id FROM applications WHERE name = $1 AND deleted_at IS NULL`
 	err := h.db.QueryRow(checkQuery, req.Name).Scan(&existingID)
 	if err == nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "APPLICATION_ALREADY_EXISTS",
-				"message": "Application with this name already exists",
-			},
-		})
+		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
+			"Application with this name already exists", nil)
 		return
 	} else if err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check application existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check application existence", nil)
 		return
 	}
 
 	apiKey, err := helperfunctions.GenerateAPIKey()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to generate API key",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
+			"Failed to generate API key", nil)
 		return
 	}
 
 	secretKey, err := helperfunctions.GenerateSecretKey()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to generate secret key",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
+			"Failed to generate secret key", nil)
 		return
 	}
 
@@ -109,32 +101,20 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		if err == sql.ErrNoRows {
 			break
 		} else if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to check API key uniqueness",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to check API key uniqueness", nil)
 			return
 		}
 		if i < maxRetries-1 {
 			apiKey, err = helperfunctions.GenerateAPIKey()
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": gin.H{
-						"code":    "INTERNAL_SERVER_ERROR",
-						"message": "Failed to generate API key",
-					},
-				})
+				errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
+					"Failed to generate API key", nil)
 				return
 			}
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to generate unique API key",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
+				"Failed to generate unique API key", nil)
 			return
 		}
 	}
@@ -151,12 +131,8 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		&app.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to create application",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to create application", nil)
 		return
 	}
 
@@ -174,12 +150,8 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		&createdApp.DeletedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve created application",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve created application", nil)
 		return
 	}
 
@@ -200,12 +172,15 @@ func (h *ApplicationHandler) Get(c *gin.Context) {
 	appID := c.Query("id")
 	if appID != "" {
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID format", details)
 			return
 		}
 
@@ -225,20 +200,12 @@ func (h *ApplicationHandler) Get(c *gin.Context) {
 
 		if err != nil {
 			if err == sql.ErrNoRows {
-				c.JSON(http.StatusNotFound, gin.H{
-					"error": gin.H{
-						"code":    "APPLICATION_NOT_FOUND",
-						"message": "Application not found",
-					},
-				})
+				errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+					"Application not found", nil)
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to retrieve application",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to retrieve application", nil)
 			return
 		}
 
@@ -265,12 +232,8 @@ func (h *ApplicationHandler) List(c *gin.Context) {
 
 	rows, err := h.db.Query(query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve applications",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve applications", nil)
 		return
 	}
 	defer rows.Close()
@@ -287,12 +250,8 @@ func (h *ApplicationHandler) List(c *gin.Context) {
 			&app.DeletedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to scan application",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to scan application", nil)
 			return
 		}
 
@@ -306,12 +265,8 @@ func (h *ApplicationHandler) List(c *gin.Context) {
 	}
 
 	if err = rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve applications",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve applications", nil)
 		return
 	}
 
@@ -324,23 +279,28 @@ func (h *ApplicationHandler) List(c *gin.Context) {
 func (h *ApplicationHandler) Update(c *gin.Context) {
 	var req models.ApplicationUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
 	if req.Name != "" {
 		if !validator.ValidateLength(req.Name, 3, 255) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Application name must be between 3 and 255 characters",
+			details := []errors.ErrorDetail{
+				{
+					Field: "name",
+					Issue: "Application name must be between 3 and 255 characters",
+					Value: req.Name,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Application name must be between 3 and 255 characters", details)
 			return
 		}
 	}
@@ -350,20 +310,12 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 	err := h.db.QueryRow(checkQuery, req.ID).Scan(&existingID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "APPLICATION_NOT_FOUND",
-					"message": "Application not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Application not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check application existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check application existence", nil)
 		return
 	}
 
@@ -372,20 +324,12 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 		nameCheckQuery := `SELECT id FROM applications WHERE name = $1 AND id != $2 AND deleted_at IS NULL`
 		err = h.db.QueryRow(nameCheckQuery, req.Name, req.ID).Scan(&duplicateID)
 		if err == nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "APPLICATION_ALREADY_EXISTS",
-					"message": "Application with this name already exists",
-				},
-			})
+			errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
+				"Application with this name already exists", nil)
 			return
 		} else if err != sql.ErrNoRows {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to check name uniqueness",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to check name uniqueness", nil)
 			return
 		}
 	}
@@ -401,12 +345,8 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 	}
 
 	if len(updateFields) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "No fields to update",
-			},
-		})
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"No fields to update", nil)
 		return
 	}
 
@@ -421,33 +361,21 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 
 	result, err := h.db.Exec(updateQuery, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to update application",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to update application", nil)
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to update application",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to update application", nil)
 		return
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"code":    "APPLICATION_NOT_FOUND",
-				"message": "Application not found",
-			},
-		})
+		errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+			"Application not found", nil)
 		return
 	}
 
@@ -487,12 +415,14 @@ func (h *ApplicationHandler) Update(c *gin.Context) {
 func (h *ApplicationHandler) Delete(c *gin.Context) {
 	var req models.ApplicationDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
@@ -503,20 +433,12 @@ func (h *ApplicationHandler) Delete(c *gin.Context) {
 	err := h.db.QueryRow(checkQuery, appID).Scan(&existingID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "APPLICATION_NOT_FOUND",
-					"message": "Application not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Application not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check application existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check application existence", nil)
 		return
 	}
 
@@ -525,33 +447,21 @@ func (h *ApplicationHandler) Delete(c *gin.Context) {
 
 	result, err := h.db.Exec(deleteQuery, now, now, req.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to delete application",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to delete application", nil)
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to delete application",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to delete application", nil)
 		return
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"code":    "APPLICATION_NOT_FOUND",
-				"message": "Application not found",
-			},
-		})
+		errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+			"Application not found", nil)
 		return
 	}
 

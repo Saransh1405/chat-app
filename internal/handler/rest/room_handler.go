@@ -10,6 +10,7 @@ import (
 
 	"chat-app/internal/database"
 	"chat-app/internal/models"
+	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
 	"chat-app/internal/utils/validator"
 
@@ -28,32 +29,39 @@ func NewRoomHandler(db *database.DB) *RoomHandler {
 func (h *RoomHandler) Create(c *gin.Context) {
 	var req models.RoomCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
 	if !validator.ValidateNotEmpty(req.Name) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Room name is required",
+		details := []errors.ErrorDetail{
+			{
+				Field: "name",
+				Issue: "Room name is required",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Room name is required", details)
 		return
 	}
 
 	if !validator.ValidateLength(req.Name, 1, 255) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Room name must be between 1 and 255 characters",
+		details := []errors.ErrorDetail{
+			{
+				Field: "name",
+				Issue: "Room name must be between 1 and 255 characters",
+				Value: req.Name,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Room name must be between 1 and 255 characters", details)
 		return
 	}
 
@@ -61,23 +69,22 @@ func (h *RoomHandler) Create(c *gin.Context) {
 	if req.ApplicationID != nil {
 		appID = req.ApplicationID.String()
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID", details)
 			return
 		}
 
 		exists, err := helperfunctions.CheckIfApplicationExistsWithId(h.db, appID)
 		if !exists || err != nil {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "APPLICATION_NOT_FOUND",
-					"message": "Application not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Application not found", nil)
 			return
 		}
 	}
@@ -86,12 +93,15 @@ func (h *RoomHandler) Create(c *gin.Context) {
 	if roomType == "" {
 		roomType = models.RoomTypeGroup
 	} else if roomType != models.RoomTypeGroup && roomType != models.RoomTypeDirect && roomType != models.RoomTypeChannel {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid room type. Must be 'group', 'direct', or 'channel'",
+		details := []errors.ErrorDetail{
+			{
+				Field: "type",
+				Issue: "Invalid room type. Must be 'group', 'direct', or 'channel'",
+				Value: string(roomType),
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid room type. Must be 'group', 'direct', or 'channel'", details)
 		return
 	}
 
@@ -110,20 +120,12 @@ func (h *RoomHandler) Create(c *gin.Context) {
 		err := h.db.QueryRow(checkUserQuery, checkUserArgs...).Scan(&existingUserID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				c.JSON(http.StatusNotFound, gin.H{
-					"error": gin.H{
-						"code":    "USER_NOT_FOUND",
-						"message": "User not found",
-					},
-				})
+				errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+					"User not found", nil)
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to check user existence",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to check user existence", nil)
 			return
 		}
 	}
@@ -133,12 +135,14 @@ func (h *RoomHandler) Create(c *gin.Context) {
 	if req.Metadata != nil {
 		metadataJSON, err = json.Marshal(req.Metadata)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid metadata format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "metadata",
+					Issue: "Invalid JSON format",
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid metadata format", details)
 			return
 		}
 	}
@@ -162,12 +166,8 @@ func (h *RoomHandler) Create(c *gin.Context) {
 	room := models.Room{}
 	err = h.db.QueryRow(insertQuery, insertArgs...).Scan(&room.ID, &room.CreatedAt, &room.UpdatedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to create room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to create room", nil)
 		return
 	}
 
@@ -200,12 +200,8 @@ func (h *RoomHandler) Create(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve created room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve created room", nil)
 		return
 	}
 
@@ -230,12 +226,15 @@ func (h *RoomHandler) Get(c *gin.Context) {
 	}
 
 	if !validator.ValidateUUID(roomID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid room ID format",
+		details := []errors.ErrorDetail{
+			{
+				Field: "id",
+				Issue: "Invalid UUID format",
+				Value: roomID,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid room ID format", details)
 		return
 	}
 
@@ -244,12 +243,15 @@ func (h *RoomHandler) Get(c *gin.Context) {
 
 	if appID != "" {
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID format", details)
 			return
 		}
 		query = `SELECT id, application_id, name, type, description, created_by, metadata, created_at, updated_at, deleted_at
@@ -281,20 +283,12 @@ func (h *RoomHandler) Get(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "ROOM_NOT_FOUND",
-					"message": "Room not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Room not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve room", nil)
 		return
 	}
 
@@ -316,12 +310,15 @@ func (h *RoomHandler) List(c *gin.Context) {
 
 	if appID != "" {
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID format", details)
 			return
 		}
 		query = `SELECT id, application_id, name, type, description, created_by, metadata, created_at, updated_at, deleted_at
@@ -339,12 +336,8 @@ func (h *RoomHandler) List(c *gin.Context) {
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve rooms",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve rooms", nil)
 		return
 	}
 	defer rows.Close()
@@ -367,12 +360,8 @@ func (h *RoomHandler) List(c *gin.Context) {
 			&room.DeletedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to scan room",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to scan room", nil)
 			return
 		}
 
@@ -385,12 +374,8 @@ func (h *RoomHandler) List(c *gin.Context) {
 	}
 
 	if err = rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve rooms",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve rooms", nil)
 		return
 	}
 
@@ -403,12 +388,14 @@ func (h *RoomHandler) List(c *gin.Context) {
 func (h *RoomHandler) Update(c *gin.Context) {
 	var req models.RoomUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
@@ -416,24 +403,30 @@ func (h *RoomHandler) Update(c *gin.Context) {
 	if req.ApplicationID != nil {
 		appID = req.ApplicationID.String()
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID", details)
 			return
 		}
 	}
 
 	if req.Name != "" {
 		if !validator.ValidateLength(req.Name, 1, 255) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Room name must be between 1 and 255 characters",
+			details := []errors.ErrorDetail{
+				{
+					Field: "name",
+					Issue: "Room name must be between 1 and 255 characters",
+					Value: req.Name,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Room name must be between 1 and 255 characters", details)
 			return
 		}
 	}
@@ -452,20 +445,12 @@ func (h *RoomHandler) Update(c *gin.Context) {
 	err := h.db.QueryRow(checkQuery, checkArgs...).Scan(&existingID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "ROOM_NOT_FOUND",
-					"message": "Room not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Room not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check room existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check room existence", nil)
 		return
 	}
 
@@ -488,12 +473,14 @@ func (h *RoomHandler) Update(c *gin.Context) {
 	if req.Metadata != nil {
 		metadataJSON, err := json.Marshal(req.Metadata)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid metadata format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "metadata",
+					Issue: "Invalid JSON format",
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid metadata format", details)
 			return
 		}
 		updateFields = append(updateFields, fmt.Sprintf("metadata = $%d", argIndex))
@@ -502,12 +489,8 @@ func (h *RoomHandler) Update(c *gin.Context) {
 	}
 
 	if len(updateFields) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "No fields to update",
-			},
-		})
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"No fields to update", nil)
 		return
 	}
 
@@ -528,33 +511,21 @@ func (h *RoomHandler) Update(c *gin.Context) {
 
 	result, err := h.db.Exec(updateQuery, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to update room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to update room", nil)
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to update room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to update room", nil)
 		return
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"code":    "ROOM_NOT_FOUND",
-				"message": "Room not found",
-			},
-		})
+		errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+			"Room not found", nil)
 		return
 	}
 
@@ -610,12 +581,14 @@ func (h *RoomHandler) Update(c *gin.Context) {
 func (h *RoomHandler) Delete(c *gin.Context) {
 	var req models.RoomDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
@@ -623,12 +596,15 @@ func (h *RoomHandler) Delete(c *gin.Context) {
 	if req.ApplicationID != nil {
 		appID = req.ApplicationID.String()
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID", details)
 			return
 		}
 	}
@@ -647,20 +623,12 @@ func (h *RoomHandler) Delete(c *gin.Context) {
 	err := h.db.QueryRow(checkQuery, checkArgs...).Scan(&existingID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "ROOM_NOT_FOUND",
-					"message": "Room not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Room not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check room existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check room existence", nil)
 		return
 	}
 
@@ -678,33 +646,21 @@ func (h *RoomHandler) Delete(c *gin.Context) {
 
 	result, err := h.db.Exec(deleteQuery, deleteArgs...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to delete room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to delete room", nil)
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to delete room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to delete room", nil)
 		return
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"code":    "ROOM_NOT_FOUND",
-				"message": "Room not found",
-			},
-		})
+		errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+			"Room not found", nil)
 		return
 	}
 
@@ -716,12 +672,14 @@ func (h *RoomHandler) Delete(c *gin.Context) {
 func (h *RoomHandler) AddMember(c *gin.Context) {
 	var req models.RoomAddMemberRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
@@ -729,12 +687,15 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 	if req.ApplicationID != nil {
 		appID = req.ApplicationID.String()
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID", details)
 			return
 		}
 	}
@@ -753,20 +714,12 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 	err := h.db.QueryRow(checkRoomQuery, checkRoomArgs...).Scan(&existingRoomID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "ROOM_NOT_FOUND",
-					"message": "Room not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Room not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check room existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check room existence", nil)
 		return
 	}
 
@@ -784,20 +737,12 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 	err = h.db.QueryRow(checkUserQuery, checkUserArgs...).Scan(&existingUserID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "USER_NOT_FOUND",
-					"message": "User not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"User not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check user existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check user existence", nil)
 		return
 	}
 
@@ -805,20 +750,12 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 	checkMemberQuery := `SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2`
 	err = h.db.QueryRow(checkMemberQuery, req.RoomID, req.UserID).Scan(&existingMemberID)
 	if err == nil {
-		c.JSON(http.StatusConflict, gin.H{
-			"error": gin.H{
-				"code":    "MEMBER_ALREADY_EXISTS",
-				"message": "User is already a member of this room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
+			"User is already a member of this room", nil)
 		return
 	} else if err != sql.ErrNoRows {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check member existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check member existence", nil)
 		return
 	}
 
@@ -835,12 +772,8 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 	member := models.RoomMember{}
 	err = h.db.QueryRow(insertQuery, req.RoomID, req.UserID, role, now).Scan(&member.ID, &member.JoinedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to add member to room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to add member to room", nil)
 		return
 	}
 
@@ -857,12 +790,14 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 func (h *RoomHandler) RemoveMember(c *gin.Context) {
 	var req models.RoomRemoveMemberRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
@@ -870,12 +805,15 @@ func (h *RoomHandler) RemoveMember(c *gin.Context) {
 	if req.ApplicationID != nil {
 		appID = req.ApplicationID.String()
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID", details)
 			return
 		}
 	}
@@ -894,20 +832,12 @@ func (h *RoomHandler) RemoveMember(c *gin.Context) {
 	err := h.db.QueryRow(checkRoomQuery, checkRoomArgs...).Scan(&existingRoomID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "ROOM_NOT_FOUND",
-					"message": "Room not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Room not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check room existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check room existence", nil)
 		return
 	}
 
@@ -916,53 +846,33 @@ func (h *RoomHandler) RemoveMember(c *gin.Context) {
 	err = h.db.QueryRow(checkMemberQuery, req.RoomID, req.UserID).Scan(&existingMemberID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "MEMBER_NOT_FOUND",
-					"message": "User is not a member of this room",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"User is not a member of this room", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check member existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check member existence", nil)
 		return
 	}
 
 	deleteQuery := `DELETE FROM room_members WHERE room_id = $1 AND user_id = $2`
 	result, err := h.db.Exec(deleteQuery, req.RoomID, req.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to remove member from room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to remove member from room", nil)
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to remove member from room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to remove member from room", nil)
 		return
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"code":    "MEMBER_NOT_FOUND",
-				"message": "User is not a member of this room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+			"User is not a member of this room", nil)
 		return
 	}
 
@@ -976,22 +886,27 @@ func (h *RoomHandler) ListMembers(c *gin.Context) {
 	appID := c.Query("application_id")
 
 	if roomID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Room ID is required",
+		details := []errors.ErrorDetail{
+			{
+				Field: "room_id",
+				Issue: "Room ID is required",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Room ID is required", details)
 		return
 	}
 
 	if !validator.ValidateUUID(roomID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid room ID format",
+		details := []errors.ErrorDetail{
+			{
+				Field: "room_id",
+				Issue: "Invalid UUID format",
+				Value: roomID,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid room ID format", details)
 		return
 	}
 
@@ -999,12 +914,15 @@ func (h *RoomHandler) ListMembers(c *gin.Context) {
 	var checkRoomArgs []interface{}
 	if appID != "" {
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID format", details)
 			return
 		}
 		checkRoomQuery = `SELECT id FROM rooms WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
@@ -1018,20 +936,12 @@ func (h *RoomHandler) ListMembers(c *gin.Context) {
 	err := h.db.QueryRow(checkRoomQuery, checkRoomArgs...).Scan(&existingRoomID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "ROOM_NOT_FOUND",
-					"message": "Room not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Room not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check room existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check room existence", nil)
 		return
 	}
 
@@ -1042,12 +952,8 @@ func (h *RoomHandler) ListMembers(c *gin.Context) {
 
 	rows, err := h.db.Query(query, roomID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve room members",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve room members", nil)
 		return
 	}
 	defer rows.Close()
@@ -1064,12 +970,8 @@ func (h *RoomHandler) ListMembers(c *gin.Context) {
 			&member.LastReadAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to scan member",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to scan member", nil)
 			return
 		}
 
@@ -1077,12 +979,8 @@ func (h *RoomHandler) ListMembers(c *gin.Context) {
 	}
 
 	if err = rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve room members",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve room members", nil)
 		return
 	}
 

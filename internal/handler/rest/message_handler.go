@@ -11,6 +11,7 @@ import (
 	"chat-app/internal/database"
 	"chat-app/internal/handler/websocket"
 	"chat-app/internal/models"
+	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
 	"chat-app/internal/utils/validator"
 
@@ -33,44 +34,40 @@ func NewMessageHandler(db *database.DB, wsHub *websocket.Hub) *MessageHandler {
 func (h *MessageHandler) Create(c *gin.Context) {
 	userIDStr, exists := c.Get("user_id")
 	if !exists || userIDStr == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": gin.H{
-				"code":    "UNAUTHORIZED",
-				"message": "User ID not found in token",
-			},
-		})
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"User ID not found in token", nil)
 		return
 	}
 
 	userID, ok := userIDStr.(string)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": gin.H{
-				"code":    "UNAUTHORIZED",
-				"message": "Invalid user ID format in token",
-			},
-		})
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid user ID format in token", nil)
 		return
 	}
 
 	var req models.MessageCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
 	if strings.TrimSpace(req.Content) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Message content cannot be empty",
+		details := []errors.ErrorDetail{
+			{
+				Field: "content",
+				Issue: "Message content cannot be empty",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Message content cannot be empty", details)
 		return
 	}
 
@@ -78,12 +75,15 @@ func (h *MessageHandler) Create(c *gin.Context) {
 	if req.ApplicationID != nil {
 		appID = req.ApplicationID.String()
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID format", details)
 			return
 		}
 	}
@@ -93,21 +93,13 @@ func (h *MessageHandler) Create(c *gin.Context) {
 
 	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userID, req.RoomID.String())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to validate room membership",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to validate room membership", nil)
 		return
 	}
 	if !isMember {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"code":    "FORBIDDEN",
-				"message": "User is not a member of this room",
-			},
-		})
+		errors.RespondWithError(c, http.StatusForbidden, errors.ErrCodeForbidden,
+			"User is not a member of this room", nil)
 		return
 	}
 
@@ -126,12 +118,8 @@ func (h *MessageHandler) Create(c *gin.Context) {
 
 	message, err := helperfunctions.SaveMessageToDB(h.db, &messageData)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to save message",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to save message", nil)
 		return
 	}
 
@@ -158,42 +146,52 @@ func (h *MessageHandler) Get(c *gin.Context) {
 	appID := c.Query("application_id")
 
 	if messageID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Message ID is required",
+		details := []errors.ErrorDetail{
+			{
+				Field: "id",
+				Issue: "Message ID is required",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Message ID is required", details)
 		return
 	}
 
 	if !validator.ValidateUUID(messageID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid message ID format",
+		details := []errors.ErrorDetail{
+			{
+				Field: "id",
+				Issue: "Invalid UUID format",
+				Value: messageID,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid message ID format", details)
 		return
 	}
 
 	if roomID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Room ID is required",
+		details := []errors.ErrorDetail{
+			{
+				Field: "room_id",
+				Issue: "Room ID is required",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Room ID is required", details)
 		return
 	}
 
 	if !validator.ValidateUUID(roomID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid room ID format",
+		details := []errors.ErrorDetail{
+			{
+				Field: "room_id",
+				Issue: "Invalid UUID format",
+				Value: roomID,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid room ID format", details)
 		return
 	}
 
@@ -202,12 +200,15 @@ func (h *MessageHandler) Get(c *gin.Context) {
 
 	if appID != "" {
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID format", details)
 			return
 		}
 		query = `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
@@ -244,20 +245,12 @@ func (h *MessageHandler) Get(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "MESSAGE_NOT_FOUND",
-					"message": "Message not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Message not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve message",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve message", nil)
 		return
 	}
 
@@ -265,12 +258,8 @@ func (h *MessageHandler) Get(c *gin.Context) {
 
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &message.Metadata); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to parse message metadata",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
+				"Failed to parse message metadata", nil)
 			return
 		}
 	}
@@ -285,22 +274,27 @@ func (h *MessageHandler) List(c *gin.Context) {
 	appID := c.Query("application_id")
 
 	if roomID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Room ID is required",
+		details := []errors.ErrorDetail{
+			{
+				Field: "room_id",
+				Issue: "Room ID is required",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Room ID is required", details)
 		return
 	}
 
 	if !validator.ValidateUUID(roomID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid room ID format",
+		details := []errors.ErrorDetail{
+			{
+				Field: "room_id",
+				Issue: "Invalid UUID format",
+				Value: roomID,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid room ID format", details)
 		return
 	}
 
@@ -321,12 +315,15 @@ func (h *MessageHandler) List(c *gin.Context) {
 
 	if appID != "" {
 		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "application_id",
+					Issue: "Invalid UUID format",
+					Value: appID,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID format", details)
 			return
 		}
 		query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
@@ -349,12 +346,8 @@ func (h *MessageHandler) List(c *gin.Context) {
 		rows, err = h.db.Query(query, roomID, limit, offset)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve messages",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve messages", nil)
 		return
 	}
 	defer rows.Close()
@@ -379,12 +372,8 @@ func (h *MessageHandler) List(c *gin.Context) {
 			&message.UpdatedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to parse message",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to parse message", nil)
 			return
 		}
 
@@ -400,12 +389,8 @@ func (h *MessageHandler) List(c *gin.Context) {
 	}
 
 	if err = rows.Err(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve messages",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve messages", nil)
 		return
 	}
 
@@ -420,44 +405,40 @@ func (h *MessageHandler) List(c *gin.Context) {
 func (h *MessageHandler) Update(c *gin.Context) {
 	userIDStr, exists := c.Get("user_id")
 	if !exists || userIDStr == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": gin.H{
-				"code":    "UNAUTHORIZED",
-				"message": "User ID not found in token",
-			},
-		})
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"User ID not found in token", nil)
 		return
 	}
 
 	userID, ok := userIDStr.(string)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": gin.H{
-				"code":    "UNAUTHORIZED",
-				"message": "Invalid user ID format in token",
-			},
-		})
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid user ID format in token", nil)
 		return
 	}
 
 	var req models.MessageUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
 	if req.Content != "" && strings.TrimSpace(req.Content) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Message content cannot be empty",
+		details := []errors.ErrorDetail{
+			{
+				Field: "content",
+				Issue: "Message content cannot be empty",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Message content cannot be empty", details)
 		return
 	}
 
@@ -478,31 +459,19 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "MESSAGE_NOT_FOUND",
-					"message": "Message not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Message not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check message existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check message existence", nil)
 		return
 	}
 
 	userIDUUID := uuid.MustParse(userID)
 	if existingUserID != userIDUUID {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"code":    "FORBIDDEN",
-				"message": "You can only update your own messages",
-			},
-		})
+		errors.RespondWithError(c, http.StatusForbidden, errors.ErrCodeForbidden,
+			"You can only update your own messages", nil)
 		return
 	}
 
@@ -525,12 +494,14 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	if req.Metadata != nil {
 		metadataJSON, err := json.Marshal(req.Metadata)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid metadata format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "metadata",
+					Issue: "Invalid JSON format",
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid metadata format", details)
 			return
 		}
 		updateFields = append(updateFields, fmt.Sprintf("metadata = $%d", argIndex))
@@ -539,12 +510,8 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	}
 
 	if len(updateFields) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "No fields to update",
-			},
-		})
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"No fields to update", nil)
 		return
 	}
 
@@ -563,33 +530,21 @@ func (h *MessageHandler) Update(c *gin.Context) {
 
 	result, err := h.db.Exec(updateQuery, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to update message",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to update message", nil)
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to update message",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to update message", nil)
 		return
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"code":    "MESSAGE_NOT_FOUND",
-				"message": "Message not found",
-			},
-		})
+		errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+			"Message not found", nil)
 		return
 	}
 
@@ -644,34 +599,28 @@ func (h *MessageHandler) Update(c *gin.Context) {
 func (h *MessageHandler) Delete(c *gin.Context) {
 	userIDStr, exists := c.Get("user_id")
 	if !exists || userIDStr == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": gin.H{
-				"code":    "UNAUTHORIZED",
-				"message": "User ID not found in token",
-			},
-		})
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"User ID not found in token", nil)
 		return
 	}
 
 	userID, ok := userIDStr.(string)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": gin.H{
-				"code":    "UNAUTHORIZED",
-				"message": "Invalid user ID format in token",
-			},
-		})
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid user ID format in token", nil)
 		return
 	}
 
 	var req models.MessageDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
@@ -692,31 +641,19 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "MESSAGE_NOT_FOUND",
-					"message": "Message not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"Message not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check message existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check message existence", nil)
 		return
 	}
 
 	userIDUUID := uuid.MustParse(userID)
 	if existingUserID != userIDUUID {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"code":    "FORBIDDEN",
-				"message": "You can only delete your own messages",
-			},
-		})
+		errors.RespondWithError(c, http.StatusForbidden, errors.ErrCodeForbidden,
+			"You can only delete your own messages", nil)
 		return
 	}
 
@@ -726,33 +663,21 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 
 	result, err := h.db.Exec(deleteQuery, now, now, req.ID, req.RoomID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to delete message",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to delete message", nil)
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to delete message",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to delete message", nil)
 		return
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"code":    "MESSAGE_NOT_FOUND",
-				"message": "Message not found",
-			},
-		})
+		errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+			"Message not found", nil)
 		return
 	}
 
