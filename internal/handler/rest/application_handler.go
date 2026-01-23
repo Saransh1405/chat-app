@@ -79,14 +79,14 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	apiKey, err := helperfunctions.GenerateAPIKey()
+	apiKey, err := helperfunctions.GenerateAPIKey(c)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
 			"Failed to generate API key", nil)
 		return
 	}
 
-	secretKey, err := helperfunctions.GenerateSecretKey()
+	secretKey, err := helperfunctions.GenerateSecretKey(c)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
 			"Failed to generate secret key", nil)
@@ -106,7 +106,7 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 			return
 		}
 		if i < maxRetries-1 {
-			apiKey, err = helperfunctions.GenerateAPIKey()
+			apiKey, err = helperfunctions.GenerateAPIKey(c)
 			if err != nil {
 				errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
 					"Failed to generate API key", nil)

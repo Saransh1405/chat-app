@@ -111,20 +111,20 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	checkUser := models.User{Email: &email}
-	if err := helperfunctions.CheckIfUserExistsWithEmail(h.db, &checkUser, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &checkUser, appID); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this email already exists", nil)
 		return
 	}
 
 	checkUser = models.User{Username: username}
-	if err := helperfunctions.CheckIfUserExistsWithUsername(h.db, &checkUser, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &checkUser, appID); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this username already exists", nil)
 		return
 	}
 
-	err := helperfunctions.CreateUser(h.db, &user, appID)
+	err := helperfunctions.CreateUser(c, h.db, &user, appID)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to create user", nil)
@@ -205,7 +205,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	user, err := helperfunctions.GetUserByEmail(h.db, email)
+	user, err := helperfunctions.GetUserByEmail(c, h.db, email)
 	if err != nil {
 		if err.Error() == "user not found" {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,

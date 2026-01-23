@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/jwt"
 
 	"github.com/gin-gonic/gin"
@@ -13,24 +14,16 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{
-					"code":    "UNAUTHORIZED",
-					"message": "Authorization header is required",
-				},
-			})
+			errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+				"Authorization header is required", nil)
 			c.Abort()
 			return
 		}
 
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{
-					"code":    "UNAUTHORIZED",
-					"message": "Invalid authorization header format. Expected: Bearer <token>",
-				},
-			})
+			errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+				"Invalid authorization header format. Expected: Bearer <token>", nil)
 			c.Abort()
 			return
 		}
@@ -39,12 +32,8 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 
 		claims, err := jwt.ValidateToken(token, jwtSecret)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{
-					"code":    "UNAUTHORIZED",
-					"message": "Invalid or expired token",
-				},
-			})
+			errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+				"Invalid or expired token", nil)
 			c.Abort()
 			return
 		}

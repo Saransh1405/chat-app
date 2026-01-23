@@ -113,23 +113,25 @@ func (h *TypingHandler) Create(c *gin.Context) {
 		ExpiresAt: time.Now().Add(10 * time.Second),
 	}
 
-	typingResult, err := helperfunctions.SaveTypingIndicatorToDB(h.db, &typing)
+	typingResult, err := helperfunctions.SaveTypingIndicatorToDB(c, h.db, &typing)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to save typing indicator", nil)
 		return
 	}
 
-	h.wsHub.Broadcast <- struct {
-		RoomID  string
-		Message websocket.MessageStruct
-	}{
-		RoomID: typingResult.RoomID.String(),
-		Message: websocket.MessageStruct{
-			Type:    "typing",
-			Payload: typingResult,
-		},
-	}
+	go func() {
+		h.wsHub.Broadcast <- struct {
+			RoomID  string
+			Message websocket.MessageStruct
+		}{
+			RoomID: typingResult.RoomID.String(),
+			Message: websocket.MessageStruct{
+				Type:    "typing",
+				Payload: typingResult,
+			},
+		}
+	}()
 
 	c.JSON(http.StatusCreated, gin.H{
 		"typing": typingResult,

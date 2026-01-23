@@ -4,11 +4,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"chat-app/internal/database"
+	"chat-app/internal/handler/websocket"
 	"chat-app/internal/models"
 	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
@@ -19,6 +21,7 @@ import (
 )
 
 type RoomHandler struct {
+	ws *websocket.Hub
 	db *database.DB
 }
 
@@ -81,7 +84,7 @@ func (h *RoomHandler) Create(c *gin.Context) {
 			return
 		}
 
-		exists, err := helperfunctions.CheckIfApplicationExistsWithId(h.db, appID)
+		exists, err := helperfunctions.CheckIfApplicationExistsWithId(c, h.db, appID)
 		if !exists || err != nil {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
 				"Application not found", nil)
@@ -208,6 +211,17 @@ func (h *RoomHandler) Create(c *gin.Context) {
 	if len(metadataJSONFetch) > 0 {
 		if err := json.Unmarshal(metadataJSONFetch, &room.Metadata); err != nil {
 		}
+	}
+
+	h.ws.Broadcast <- struct {
+		RoomID  string
+		Message websocket.MessageStruct
+	}{
+		RoomID: room.ID.String(),
+		Message: websocket.MessageStruct{
+			Type:    "room_created",
+			Payload: room,
+		},
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -572,6 +586,19 @@ func (h *RoomHandler) Update(c *gin.Context) {
 		}
 	}
 
+	go func() {
+		h.ws.Broadcast <- struct {
+			RoomID  string
+			Message websocket.MessageStruct
+		}{
+			RoomID: updatedRoom.ID.String(),
+			Message: websocket.MessageStruct{
+				Type:    "room_updated",
+				Payload: updatedRoom,
+			},
+		}
+	}()
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Room updated successfully",
 		"room":    updatedRoom,
@@ -663,6 +690,19 @@ func (h *RoomHandler) Delete(c *gin.Context) {
 			"Room not found", nil)
 		return
 	}
+
+	go func() {
+		h.ws.Broadcast <- struct {
+			RoomID  string
+			Message websocket.MessageStruct
+		}{
+			RoomID: req.ID.String(),
+			Message: websocket.MessageStruct{
+				Type:    "room_updated",
+				Payload: req,
+			},
+		}
+	}()
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Room deleted successfully",
@@ -765,6 +805,7 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 	}
 
 	now := time.Now()
+
 	insertQuery := `INSERT INTO room_members (room_id, user_id, role, joined_at)
 	                VALUES ($1, $2, $3, $4)
 	                RETURNING id, joined_at`
@@ -780,6 +821,30 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 	member.RoomID = req.RoomID
 	member.UserID = req.UserID
 	member.Role = role
+
+	go func() {
+		room, err := helperfunctions.GetRoomById(c, h.db, req.RoomID.String())
+		if err != nil {
+			log.Printf("Error getting room by ID: %v", err)
+			return
+		}
+
+		roomWithMembers := map[string]interface{}{
+			"room":   room,
+			"member": member,
+		}
+
+		h.ws.Broadcast <- struct {
+			RoomID  string
+			Message websocket.MessageStruct
+		}{
+			RoomID: req.RoomID.String(),
+			Message: websocket.MessageStruct{
+				Type:    "room_member_added",
+				Payload: roomWithMembers,
+			},
+		}
+	}()
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "Member added to room successfully",
@@ -875,6 +940,36 @@ func (h *RoomHandler) RemoveMember(c *gin.Context) {
 			"User is not a member of this room", nil)
 		return
 	}
+
+	go func() {
+		room, err := helperfunctions.GetRoomById(c, h.db, req.RoomID.String())
+		if err != nil {
+			log.Printf("Error getting room by ID: %v", err)
+			return
+		}
+
+		user, err := helperfunctions.GetUserById(c, h.db, req.UserID.String())
+		if err != nil {
+			log.Printf("Error getting user by ID: %v", err)
+			return
+		}
+
+		roomWithMembers := map[string]interface{}{
+			"room":          room,
+			"memberRemoved": user,
+		}
+
+		h.ws.Broadcast <- struct {
+			RoomID  string
+			Message websocket.MessageStruct
+		}{
+			RoomID: req.RoomID.String(),
+			Message: websocket.MessageStruct{
+				Type:    "room_member_removed",
+				Payload: roomWithMembers,
+			},
+		}
+	}()
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Member removed from room successfully",

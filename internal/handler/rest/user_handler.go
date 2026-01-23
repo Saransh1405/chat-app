@@ -95,19 +95,19 @@ func (h *UserHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithEmail(h.db, &user, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &user, appID); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this email already exists", nil)
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithUsername(h.db, &user, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &user, appID); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this username already exists", nil)
 		return
 	}
 
-	err := helperfunctions.CreateUser(h.db, &user, appID)
+	err := helperfunctions.CreateUser(c, h.db, &user, appID)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to create user", nil)
@@ -173,19 +173,19 @@ func (h *UserHandler) DirectCreate(c *gin.Context) {
 		appID = req.ApplicationID.String()
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithEmail(h.db, &user, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &user, appID); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this email already exists", nil)
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithUsername(h.db, &user, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &user, appID); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this username already exists", nil)
 		return
 	}
 
-	err := helperfunctions.CreateUser(h.db, &user, appID)
+	err := helperfunctions.CreateUser(c, h.db, &user, appID)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to create user", nil)

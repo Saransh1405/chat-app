@@ -4,6 +4,8 @@ import (
 	"log"
 	"net/http"
 
+	"chat-app/internal/utils/errors"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,12 +15,8 @@ func Recovery() gin.HandlerFunc {
 			if err := recover(); err != nil {
 				log.Printf("Panic recovered: %v", err)
 
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": gin.H{
-						"code":    "INTERNAL_ERROR",
-						"message": "An unexpected error occurred",
-					},
-				})
+				errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
+					"An unexpected error occurred", nil)
 
 				c.Abort()
 			}
@@ -27,4 +25,3 @@ func Recovery() gin.HandlerFunc {
 		c.Next()
 	}
 }
-

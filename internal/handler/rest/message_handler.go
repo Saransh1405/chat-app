@@ -116,23 +116,25 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		messageData.MessageType = models.MessageTypeText
 	}
 
-	message, err := helperfunctions.SaveMessageToDB(h.db, &messageData)
+	message, err := helperfunctions.SaveMessageToDB(c, h.db, &messageData)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to save message", nil)
 		return
 	}
 
-	h.wsHub.Broadcast <- struct {
-		RoomID  string
-		Message websocket.MessageStruct
-	}{
-		RoomID: message.RoomID.String(),
-		Message: websocket.MessageStruct{
-			Type:    "message",
-			Payload: message,
-		},
-	}
+	go func() {
+		h.wsHub.Broadcast <- struct {
+			RoomID  string
+			Message websocket.MessageStruct
+		}{
+			RoomID: message.RoomID.String(),
+			Message: websocket.MessageStruct{
+				Type:    "message",
+				Payload: message,
+			},
+		}
+	}()
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": message,
@@ -589,6 +591,19 @@ func (h *MessageHandler) Update(c *gin.Context) {
 			return
 		}
 	}
+
+	go func() {
+		h.wsHub.Broadcast <- struct {
+			RoomID  string
+			Message websocket.MessageStruct
+		}{
+			RoomID: updatedMessage.RoomID.String(),
+			Message: websocket.MessageStruct{
+				Type:    "message_updated",
+				Payload: updatedMessage,
+			},
+		}
+	}()
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Message updated successfully",

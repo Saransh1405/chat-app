@@ -11,13 +11,20 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-func CreateUser(db *database.DB, user *models.User, appID string) error {
-	appIDUUID, err := uuid.Parse(appID)
-	if err != nil {
-		return errors.New("invalid application ID format")
+func CreateUser(ctx *gin.Context, db *database.DB, user *models.User, appID string) error {
+	var appIDUUID uuid.UUID
+	var err error
+	if appID != "" {
+		appIDUUID, err = uuid.Parse(appID)
+		if err != nil {
+			return errors.New("invalid application ID format")
+		}
+	} else {
+		appIDUUID = uuid.Nil
 	}
 
 	query := `INSERT INTO users (application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at)
@@ -52,7 +59,7 @@ func CreateUser(db *database.DB, user *models.User, appID string) error {
 	return nil
 }
 
-func CheckIfUserExistsWithEmail(db *database.DB, user *models.User, appID string) error {
+func CheckIfUserExistsWithEmail(ctx *gin.Context, db *database.DB, user *models.User, appID string) error {
 	var query string
 	var args []interface{}
 
@@ -102,7 +109,7 @@ func CheckIfUserExistsWithEmail(db *database.DB, user *models.User, appID string
 	return nil
 }
 
-func CheckIfUserExistsWithUsername(db *database.DB, user *models.User, appID string) error {
+func CheckIfUserExistsWithUsername(ctx *gin.Context, db *database.DB, user *models.User, appID string) error {
 	var query string
 	var args []interface{}
 
@@ -152,7 +159,7 @@ func CheckIfUserExistsWithUsername(db *database.DB, user *models.User, appID str
 	return nil
 }
 
-func GetUserByEmail(db *database.DB, email string) (*models.User, error) {
+func GetUserByEmail(ctx *gin.Context, db *database.DB, email string) (*models.User, error) {
 	query := `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at
 	          FROM users
 	          WHERE email = $1 AND deleted_at IS NULL`
@@ -212,7 +219,7 @@ func ValidateUserIsMemberOfRoom(db *database.DB, userID string, roomID string) (
 	return count > 0, nil
 }
 
-func GenerateAPIKey() (string, error) {
+func GenerateAPIKey(ctx *gin.Context) (string, error) {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
@@ -220,7 +227,7 @@ func GenerateAPIKey() (string, error) {
 	return base64.URLEncoding.EncodeToString(bytes), nil
 }
 
-func GenerateSecretKey() (string, error) {
+func GenerateSecretKey(ctx *gin.Context) (string, error) {
 	bytes := make([]byte, 64)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
@@ -228,7 +235,7 @@ func GenerateSecretKey() (string, error) {
 	return base64.URLEncoding.EncodeToString(bytes), nil
 }
 
-func SaveMessageToDB(db *database.DB, message *models.Message) (*models.Message, error) {
+func SaveMessageToDB(ctx *gin.Context, db *database.DB, message *models.Message) (*models.Message, error) {
 	query := `INSERT INTO messages (room_id, user_id, content, message_type, reply_to, metadata, created_at, updated_at)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	          RETURNING id, created_at, updated_at`
@@ -262,7 +269,7 @@ func SaveMessageToDB(db *database.DB, message *models.Message) (*models.Message,
 	return message, nil
 }
 
-func CheckIfUserExistsWithId(db *database.DB, userId string) bool {
+func CheckIfUserExistsWithId(ctx *gin.Context, db *database.DB, userId string) bool {
 	userIDUUID, err := uuid.Parse(userId)
 	if err != nil {
 		return false
@@ -279,7 +286,7 @@ func CheckIfUserExistsWithId(db *database.DB, userId string) bool {
 	return count > 0
 }
 
-func CheckIfApplicationExistsWithId(db *database.DB, applicationId string) (bool, *models.Application) {
+func CheckIfApplicationExistsWithId(ctx *gin.Context, db *database.DB, applicationId string) (bool, *models.Application) {
 	appIDUUID, err := uuid.Parse(applicationId)
 	if err != nil {
 		return false, nil
@@ -304,7 +311,7 @@ func CheckIfApplicationExistsWithId(db *database.DB, applicationId string) (bool
 	return true, app
 }
 
-func SaveTypingIndicatorToDB(db *database.DB, typing *models.TypingIndicator) (*models.TypingIndicator, error) {
+func SaveTypingIndicatorToDB(ctx *gin.Context, db *database.DB, typing *models.TypingIndicator) (*models.TypingIndicator, error) {
 	query := `INSERT INTO typing_indicators (room_id, user_id, expires_at, created_at, updated_at)
 	          VALUES ($1, $2, $3, $4, $5)
 	          RETURNING id, room_id, user_id, created_at, expires_at`
@@ -327,6 +334,57 @@ func SaveTypingIndicatorToDB(db *database.DB, typing *models.TypingIndicator) (*
 	return typing, nil
 }
 
-func ExpireTypingIndicator(db *database.DB, typing *models.TypingIndicator) error {
+func ExpireTypingIndicator(ctx *gin.Context, db *database.DB, typing *models.TypingIndicator) error {
 	return nil
+}
+
+func GetRoomById(ctx *gin.Context, db *database.DB, roomID string) (*models.Room, error) {
+	roomIDUUID, err := uuid.Parse(roomID)
+	if err != nil {
+		return nil, errors.New("invalid room ID format")
+	}
+
+	query := `SELECT id, name, description, created_at, updated_at, deleted_at FROM rooms WHERE id = $1 AND deleted_at IS NULL`
+
+	room := &models.Room{}
+	err = db.QueryRow(query, roomIDUUID).Scan(
+		&room.ID,
+		&room.Name,
+		&room.Description,
+		&room.CreatedAt,
+		&room.UpdatedAt,
+		&room.DeletedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return room, nil
+}
+
+func GetUserById(ctx *gin.Context, db *database.DB, userID string) (*models.User, error) {
+	userIDUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, errors.New("invalid user ID format")
+	}
+
+	query := `SELECT id, application_id, external_id, username, email, avatar_url, created_at, updated_at, deleted_at FROM users WHERE id = $1 AND deleted_at IS NULL`
+
+	user := &models.User{}
+	err = db.QueryRow(query, userIDUUID).Scan(
+		&user.ID,
+		&user.ApplicationID,
+		&user.ExternalID,
+		&user.Username,
+		&user.Email,
+		&user.AvatarURL,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+		&user.DeletedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
 }

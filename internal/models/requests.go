@@ -26,7 +26,7 @@ type UserCreateRequest struct {
 	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
 	ExternalID    string     `json:"external_id,omitempty"`
 	Username      string     `json:"username" binding:"required"`
-	Email         *string    `json:"email,omitempty"`
+	Email         *string    `json:"email" binding:"required"`
 	AvatarURL     *string    `json:"avatar_url,omitempty"`
 	Metadata      JSONB      `json:"metadata,omitempty"`
 }
@@ -145,4 +145,22 @@ type LoginRequest struct {
 
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+// Reaction Request Models
+type ReactionCreateRequest struct {
+	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
+	MessageID     uuid.UUID  `json:"message_id" binding:"required"`
+	Reaction      string     `json:"reaction" binding:"required"`
+}
+
+type ReactionDeleteRequest struct {
+	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
+	MessageID     uuid.UUID  `json:"message_id" binding:"required"`
+	Reaction      string     `json:"reaction" binding:"required"`
+}
+
+type ReactionListRequest struct {
+	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
+	MessageID     uuid.UUID  `json:"message_id" binding:"required"`
 }
