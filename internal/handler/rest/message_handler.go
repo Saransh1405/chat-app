@@ -13,6 +13,7 @@ import (
 	"chat-app/internal/models"
 	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
+	"chat-app/internal/utils/logger"
 	"chat-app/internal/utils/validator"
 
 	"github.com/gin-gonic/gin"
@@ -93,11 +94,19 @@ func (h *MessageHandler) Create(c *gin.Context) {
 
 	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userID, req.RoomID.String())
 	if err != nil {
+		logger.Error("Failed to validate room membership", err, logger.Fields{
+			"user_id": userID,
+			"room_id": req.RoomID.String(),
+		})
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to validate room membership", nil)
 		return
 	}
 	if !isMember {
+		logger.Warn("User attempted to send message to room they're not a member of", logger.Fields{
+			"user_id": userID,
+			"room_id": req.RoomID.String(),
+		})
 		errors.RespondWithError(c, http.StatusForbidden, errors.ErrCodeForbidden,
 			"User is not a member of this room", nil)
 		return
@@ -116,15 +125,40 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		messageData.MessageType = models.MessageTypeText
 	}
 
+	startTime := time.Now()
 	message, err := helperfunctions.SaveMessageToDB(c, h.db, &messageData)
 	if err != nil {
+		logger.Error("Failed to save message", err, logger.Fields{
+			"user_id":     userID,
+			"room_id":     req.RoomID.String(),
+			"content_len": len(req.Content),
+			"duration_ms": time.Since(startTime).Milliseconds(),
+		})
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to save message", nil)
 		return
 	}
 
+	logger.Info("Message created successfully", logger.Fields{
+		"message_id": message.ID.String(),
+		"user_id":    userID,
+		"room_id":    req.RoomID.String(),
+		"type":       message.MessageType,
+		"duration_ms": time.Since(startTime).Milliseconds(),
+	})
+
 	go func() {
-		h.wsHub.Broadcast <- struct {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Panic in WebSocket broadcast", fmt.Errorf("%v", r), logger.Fields{
+					"room_id":   message.RoomID.String(),
+					"message_id": message.ID.String(),
+				})
+			}
+		}()
+		
+		select {
+		case h.wsHub.Broadcast <- struct {
 			RoomID  string
 			Message websocket.MessageStruct
 		}{
@@ -133,6 +167,16 @@ func (h *MessageHandler) Create(c *gin.Context) {
 				Type:    "message",
 				Payload: message,
 			},
+		}:
+			logger.Debug("Message broadcasted via WebSocket", logger.Fields{
+				"room_id":   message.RoomID.String(),
+				"message_id": message.ID.String(),
+			})
+		case <-time.After(5 * time.Second):
+			logger.Warn("WebSocket broadcast timeout", logger.Fields{
+				"room_id":   message.RoomID.String(),
+				"message_id": message.ID.String(),
+			})
 		}
 	}()
 

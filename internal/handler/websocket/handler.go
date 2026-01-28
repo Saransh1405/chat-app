@@ -1,14 +1,16 @@
 package websocket
 
 import (
-	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"chat-app/internal/config"
 	"chat-app/internal/database"
-	"chat-app/internal/middleware"
+	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
+	"chat-app/internal/utils/jwt"
+	"chat-app/internal/utils/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,12 +19,41 @@ import (
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		allowedOrigins := []string{"localhost:3000"}
-		for _, origin := range allowedOrigins {
-			if origin == r.Header.Get("Origin") {
+		origin := r.Header.Get("Origin")
+		logger.Debug("WebSocket origin check", logger.Fields{
+			"origin":    origin,
+			"client_ip": r.RemoteAddr,
+		})
+
+		// If no origin header, allow in development (some clients don't send it)
+		if origin == "" {
+			logger.Debug("No origin header, allowing connection (development mode)")
+			return true
+		}
+
+		// Allow localhost with any port for development
+		allowedPatterns := []string{
+			"http://localhost:3000",
+			"http://localhost:5173",
+			"http://127.0.0.1:3000",
+			"http://127.0.0.1:5173",
+		}
+		for _, pattern := range allowedPatterns {
+			if origin == pattern {
+				logger.Debug("Origin matched allowed pattern", logger.Fields{"pattern": pattern})
 				return true
 			}
 		}
+		// For development, allow any localhost origin
+		if strings.HasPrefix(origin, "http://localhost:") || strings.HasPrefix(origin, "http://127.0.0.1:") {
+			logger.Debug("Origin matched localhost pattern", logger.Fields{"origin": origin})
+			return true
+		}
+
+		logger.Warn("WebSocket origin not allowed", logger.Fields{
+			"origin":    origin,
+			"client_ip": r.RemoteAddr,
+		})
 		return false
 	},
 	ReadBufferSize:  1024,
@@ -50,39 +81,56 @@ type WSConnection struct {
 }
 
 func (h *Handler) HandleConnection(c *gin.Context) {
-	middleware.Auth(h.config.JWT.Secret)(c)
-	userId, ok := c.Get("user_id")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": gin.H{
-				"code":    "UNAUTHORIZED",
-				"message": "Unauthorized",
-			},
+	// WebSocket connections in browsers can't set custom headers, so we accept token from query parameter
+	token := c.Query("token")
+	if token == "" {
+		// Fallback to Authorization header if query param not provided
+		authHeader := c.GetHeader("Authorization")
+		if authHeader != "" {
+			parts := strings.Split(authHeader, " ")
+			if len(parts) == 2 && parts[0] == "Bearer" {
+				token = parts[1]
+			}
+		}
+	}
+
+	if token == "" {
+		logger.Warn("WebSocket connection failed: no token provided", logger.Fields{
+			"client_ip": c.ClientIP(),
 		})
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Token is required", nil)
 		return
 	}
 
-	appID, ok := c.Get("app_id")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": gin.H{
-				"code":    "UNAUTHORIZED",
-				"message": "Unauthorized",
-			},
+	claims, err := jwt.ValidateToken(token, h.config.JWT.Secret)
+	if err != nil {
+		logger.Warn("WebSocket connection failed: invalid token", logger.Fields{
+			"client_ip": c.ClientIP(),
+			"error":     err.Error(),
 		})
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid or expired token", nil)
 		return
 	}
+
+	userId := claims.UserID
+	appID := claims.AppID
 
 	wsConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade error: %v", err)
+		logger.Error("WebSocket upgrade error", err, logger.Fields{
+			"user_id":   userId,
+			"app_id":    appID,
+			"client_ip": c.ClientIP(),
+		})
 		return
 	}
 
 	connection := &Connection{
 		ID:      uuid.New().String(),
-		UserID:  userId.(string),
-		AppID:   appID.(string),
+		UserID:  userId,
+		AppID:   appID,
 		RoomIDs: make(map[string]bool),
 		Send:    make(chan MessageStruct, 256),
 		Hub:     h.hub,
@@ -96,6 +144,11 @@ func (h *Handler) HandleConnection(c *gin.Context) {
 
 	h.hub.Register <- connection
 
+	logger.LogWebSocketEvent("connection_established", connection.UserID, "", logger.Fields{
+		"connection_id": connection.ID,
+		"app_id":        connection.AppID,
+	})
+
 	go wsConnection.writePump()
 	go wsConnection.readPump()
 }
@@ -104,6 +157,9 @@ func (ws *WSConnection) readPump() {
 	defer func() {
 		ws.Connection.Hub.Unregister <- ws.Connection
 		ws.wsConn.Close()
+		logger.LogWebSocketEvent("connection_closed", ws.UserID, "", logger.Fields{
+			"connection_id": ws.ID,
+		})
 	}()
 
 	ws.wsConn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -122,7 +178,10 @@ func (ws *WSConnection) readPump() {
 		err := ws.wsConn.ReadJSON(&msg)
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket error: %v", err)
+				logger.Error("WebSocket read error", err, logger.Fields{
+					"connection_id": ws.ID,
+					"user_id":       ws.UserID,
+				})
 			}
 			break
 		}
@@ -132,6 +191,11 @@ func (ws *WSConnection) readPump() {
 			if msg.RoomID != "" {
 				isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.db, ws.UserID, msg.RoomID)
 				if err != nil {
+					logger.Error("Failed to validate room membership for WebSocket subscribe", err, logger.Fields{
+						"user_id":       ws.UserID,
+						"room_id":       msg.RoomID,
+						"connection_id": ws.ID,
+					})
 					ws.Send <- MessageStruct{
 						Type: "error",
 						Payload: map[string]interface{}{
@@ -142,8 +206,15 @@ func (ws *WSConnection) readPump() {
 				}
 				if isMember {
 					ws.Hub.SubscribeToRoom(ws.Connection, msg.RoomID)
-					log.Printf("User %s subscribed to room %s", ws.UserID, msg.RoomID)
+					logger.LogWebSocketEvent("subscribe", ws.UserID, msg.RoomID, logger.Fields{
+						"connection_id": ws.ID,
+					})
 				} else {
+					logger.Warn("User attempted to subscribe to room they're not a member of", logger.Fields{
+						"user_id":       ws.UserID,
+						"room_id":       msg.RoomID,
+						"connection_id": ws.ID,
+					})
 					ws.Send <- MessageStruct{
 						Type: "error",
 						Payload: map[string]interface{}{
@@ -155,7 +226,9 @@ func (ws *WSConnection) readPump() {
 		case "unsubscribe":
 			if msg.RoomID != "" {
 				ws.Hub.UnsubscribeFromRoom(ws.Connection, msg.RoomID)
-				log.Printf("User %s unsubscribed from room %s", ws.UserID, msg.RoomID)
+				logger.LogWebSocketEvent("unsubscribe", ws.UserID, msg.RoomID, logger.Fields{
+					"connection_id": ws.ID,
+				})
 			}
 		case "ping":
 			ws.Send <- MessageStruct{Type: "pong"}
@@ -173,7 +246,11 @@ func (ws *WSConnection) readPump() {
 
 			isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.db, ws.UserID, msg.RoomID)
 			if err != nil {
-				log.Printf("Error validating user is member of room: %v", err)
+				logger.Error("Error validating user is member of room for WebSocket message", err, logger.Fields{
+					"user_id":       ws.UserID,
+					"room_id":       msg.RoomID,
+					"connection_id": ws.ID,
+				})
 				ws.Send <- MessageStruct{
 					Type: "error",
 					Payload: map[string]interface{}{
@@ -194,7 +271,15 @@ func (ws *WSConnection) readPump() {
 						Payload: msg.Payload,
 					},
 				}
+				logger.LogWebSocketEvent("message_sent", ws.UserID, msg.RoomID, logger.Fields{
+					"connection_id": ws.ID,
+				})
 			} else {
+				logger.Warn("User attempted to send WebSocket message to room they're not a member of", logger.Fields{
+					"user_id":       ws.UserID,
+					"room_id":       msg.RoomID,
+					"connection_id": ws.ID,
+				})
 				ws.Send <- MessageStruct{
 					Type: "error",
 					Payload: map[string]interface{}{
@@ -203,7 +288,11 @@ func (ws *WSConnection) readPump() {
 				}
 			}
 		default:
-			log.Printf("Unknown message type: %s", msg.Type)
+			logger.Warn("Unknown WebSocket message type", logger.Fields{
+				"message_type":  msg.Type,
+				"connection_id": ws.ID,
+				"user_id":       ws.UserID,
+			})
 		}
 	}
 }
@@ -225,13 +314,21 @@ func (ws *WSConnection) writePump() {
 			}
 
 			if err := ws.wsConn.WriteJSON(message); err != nil {
-				log.Printf("WebSocket write error: %v", err)
+				logger.Error("WebSocket write error", err, logger.Fields{
+					"connection_id": ws.ID,
+					"user_id":       ws.UserID,
+					"message_type":  message.Type,
+				})
 				return
 			}
 
 		case <-ticker.C:
 			ws.wsConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := ws.wsConn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				logger.Error("WebSocket ping error", err, logger.Fields{
+					"connection_id": ws.ID,
+					"user_id":       ws.UserID,
+				})
 				return
 			}
 		}

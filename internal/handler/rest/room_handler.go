@@ -25,8 +25,11 @@ type RoomHandler struct {
 	db *database.DB
 }
 
-func NewRoomHandler(db *database.DB) *RoomHandler {
-	return &RoomHandler{db: db}
+func NewRoomHandler(db *database.DB, ws *websocket.Hub) *RoomHandler {
+	return &RoomHandler{
+		db: db,
+		ws: ws,
+	}
 }
 
 func (h *RoomHandler) Create(c *gin.Context) {
@@ -213,15 +216,23 @@ func (h *RoomHandler) Create(c *gin.Context) {
 		}
 	}
 
-	h.ws.Broadcast <- struct {
-		RoomID  string
-		Message websocket.MessageStruct
-	}{
-		RoomID: room.ID.String(),
-		Message: websocket.MessageStruct{
-			Type:    "room_created",
-			Payload: room,
-		},
+	// Broadcast room creation event via WebSocket if hub is available
+	if h.ws != nil {
+		select {
+		case h.ws.Broadcast <- struct {
+			RoomID  string
+			Message websocket.MessageStruct
+		}{
+			RoomID: room.ID.String(),
+			Message: websocket.MessageStruct{
+				Type:    "room_created",
+				Payload: room,
+			},
+		}:
+		default:
+			// Channel is full or closed, log but don't fail the request
+			log.Printf("Failed to broadcast room_created event: channel unavailable")
+		}
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -587,15 +598,21 @@ func (h *RoomHandler) Update(c *gin.Context) {
 	}
 
 	go func() {
-		h.ws.Broadcast <- struct {
-			RoomID  string
-			Message websocket.MessageStruct
-		}{
-			RoomID: updatedRoom.ID.String(),
-			Message: websocket.MessageStruct{
-				Type:    "room_updated",
-				Payload: updatedRoom,
-			},
+		if h.ws != nil {
+			select {
+			case h.ws.Broadcast <- struct {
+				RoomID  string
+				Message websocket.MessageStruct
+			}{
+				RoomID: updatedRoom.ID.String(),
+				Message: websocket.MessageStruct{
+					Type:    "room_updated",
+					Payload: updatedRoom,
+				},
+			}:
+			default:
+				log.Printf("Failed to broadcast room_updated event: channel unavailable")
+			}
 		}
 	}()
 
@@ -692,15 +709,21 @@ func (h *RoomHandler) Delete(c *gin.Context) {
 	}
 
 	go func() {
-		h.ws.Broadcast <- struct {
-			RoomID  string
-			Message websocket.MessageStruct
-		}{
-			RoomID: req.ID.String(),
-			Message: websocket.MessageStruct{
-				Type:    "room_updated",
-				Payload: req,
-			},
+		if h.ws != nil {
+			select {
+			case h.ws.Broadcast <- struct {
+				RoomID  string
+				Message websocket.MessageStruct
+			}{
+				RoomID: req.ID.String(),
+				Message: websocket.MessageStruct{
+					Type:    "room_updated",
+					Payload: req,
+				},
+			}:
+			default:
+				log.Printf("Failed to broadcast room_updated event: channel unavailable")
+			}
 		}
 	}()
 
@@ -773,6 +796,9 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 		checkUserArgs = []interface{}{req.UserID}
 	}
 
+	fmt.Println("checkUserQuery", checkUserQuery)
+	fmt.Println("checkUserArgs", checkUserArgs)
+
 	var existingUserID uuid.UUID
 	err = h.db.QueryRow(checkUserQuery, checkUserArgs...).Scan(&existingUserID)
 	if err != nil {
@@ -834,15 +860,21 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 			"member": member,
 		}
 
-		h.ws.Broadcast <- struct {
-			RoomID  string
-			Message websocket.MessageStruct
-		}{
-			RoomID: req.RoomID.String(),
-			Message: websocket.MessageStruct{
-				Type:    "room_member_added",
-				Payload: roomWithMembers,
-			},
+		if h.ws != nil {
+			select {
+			case h.ws.Broadcast <- struct {
+				RoomID  string
+				Message websocket.MessageStruct
+			}{
+				RoomID: req.RoomID.String(),
+				Message: websocket.MessageStruct{
+					Type:    "room_member_added",
+					Payload: roomWithMembers,
+				},
+			}:
+			default:
+				log.Printf("Failed to broadcast room_member_added event: channel unavailable")
+			}
 		}
 	}()
 
@@ -959,15 +991,21 @@ func (h *RoomHandler) RemoveMember(c *gin.Context) {
 			"memberRemoved": user,
 		}
 
-		h.ws.Broadcast <- struct {
-			RoomID  string
-			Message websocket.MessageStruct
-		}{
-			RoomID: req.RoomID.String(),
-			Message: websocket.MessageStruct{
-				Type:    "room_member_removed",
-				Payload: roomWithMembers,
-			},
+		if h.ws != nil {
+			select {
+			case h.ws.Broadcast <- struct {
+				RoomID  string
+				Message websocket.MessageStruct
+			}{
+				RoomID: req.RoomID.String(),
+				Message: websocket.MessageStruct{
+					Type:    "room_member_removed",
+					Payload: roomWithMembers,
+				},
+			}:
+			default:
+				log.Printf("Failed to broadcast room_member_removed event: channel unavailable")
+			}
 		}
 	}()
 

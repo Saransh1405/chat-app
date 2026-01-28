@@ -2,6 +2,7 @@ package rest
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"chat-app/internal/models"
 	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
+	"chat-app/internal/utils/logger"
 	"chat-app/internal/utils/validator"
 
 	"github.com/gin-gonic/gin"
@@ -203,7 +205,18 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 
 	// Broadcast reaction via websocket
 	go func() {
-		h.wsHub.Broadcast <- struct {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Panic in WebSocket reaction broadcast", fmt.Errorf("%v", r), logger.Fields{
+					"room_id":    roomID.String(),
+					"message_id": req.MessageID.String(),
+					"reaction":   reaction,
+				})
+			}
+		}()
+
+		select {
+		case h.wsHub.Broadcast <- struct {
 			RoomID  string
 			Message websocket.MessageStruct
 		}{
@@ -212,6 +225,17 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 				Type:    "reaction_added",
 				Payload: reactionModel,
 			},
+		}:
+			logger.Debug("Reaction broadcasted via WebSocket", logger.Fields{
+				"room_id":    roomID.String(),
+				"message_id": req.MessageID.String(),
+				"reaction":   reaction,
+			})
+		case <-time.After(5 * time.Second):
+			logger.Warn("WebSocket reaction broadcast timeout", logger.Fields{
+				"room_id":    roomID.String(),
+				"message_id": req.MessageID.String(),
+			})
 		}
 	}()
 
@@ -364,7 +388,18 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 
 	// Broadcast reaction deletion via websocket
 	go func() {
-		h.wsHub.Broadcast <- struct {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Panic in WebSocket reaction deletion broadcast", fmt.Errorf("%v", r), logger.Fields{
+					"room_id":    roomID.String(),
+					"message_id": req.MessageID.String(),
+					"reaction":   reaction,
+				})
+			}
+		}()
+
+		select {
+		case h.wsHub.Broadcast <- struct {
 			RoomID  string
 			Message websocket.MessageStruct
 		}{
@@ -377,6 +412,17 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 					"reaction":   reaction,
 				},
 			},
+		}:
+			logger.Debug("Reaction deletion broadcasted via WebSocket", logger.Fields{
+				"room_id":    roomID.String(),
+				"message_id": req.MessageID.String(),
+				"reaction":   reaction,
+			})
+		case <-time.After(5 * time.Second):
+			logger.Warn("WebSocket reaction deletion broadcast timeout", logger.Fields{
+				"room_id":    roomID.String(),
+				"message_id": req.MessageID.String(),
+			})
 		}
 	}()
 

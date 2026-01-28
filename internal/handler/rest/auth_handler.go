@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"chat-app/internal/config"
 	"chat-app/internal/database"
@@ -12,6 +13,7 @@ import (
 	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
 	"chat-app/internal/utils/jwt"
+	"chat-app/internal/utils/logger"
 	"chat-app/internal/utils/validator"
 
 	"github.com/gin-gonic/gin"
@@ -112,6 +114,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	checkUser := models.User{Email: &email}
 	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &checkUser, appID); err == nil {
+		logger.Warn("User registration failed: email already exists", logger.Fields{
+			"email":          email,
+			"application_id": appID,
+			"client_ip":      c.ClientIP(),
+		})
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this email already exists", nil)
 		return
@@ -119,17 +126,37 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	checkUser = models.User{Username: username}
 	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &checkUser, appID); err == nil {
+		logger.Warn("User registration failed: username already exists", logger.Fields{
+			"username":       username,
+			"application_id": appID,
+			"client_ip":      c.ClientIP(),
+		})
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this username already exists", nil)
 		return
 	}
 
+	startTime := time.Now()
 	err := helperfunctions.CreateUser(c, h.db, &user, appID)
 	if err != nil {
+		logger.Error("Failed to create user", err, logger.Fields{
+			"email":          email,
+			"username":       username,
+			"application_id": appID,
+			"duration_ms":    time.Since(startTime).Milliseconds(),
+		})
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to create user", nil)
 		return
 	}
+
+	logger.Info("User created successfully", logger.Fields{
+		"user_id":        user.ID.String(),
+		"email":          email,
+		"username":       username,
+		"application_id": appID,
+		"duration_ms":    time.Since(startTime).Milliseconds(),
+	})
 
 	accessToken, err := jwt.GenerateToken(
 		user.ID.String(),
@@ -139,6 +166,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		h.config.JWT.AccessExpiry,
 	)
 	if err != nil {
+		logger.Error("Failed to generate access token", err, logger.Fields{
+			"user_id": user.ID.String(),
+		})
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
 			"Failed to generate access token", nil)
 		return
@@ -152,10 +182,19 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		h.config.JWT.RefreshExpiry,
 	)
 	if err != nil {
+		logger.Error("Failed to generate refresh token", err, logger.Fields{
+			"user_id": user.ID.String(),
+		})
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
 			"Failed to generate refresh token", nil)
 		return
 	}
+
+	logger.LogAuthEvent("register", user.ID.String(), true, logger.Fields{
+		"email":          email,
+		"username":       username,
+		"application_id": appID,
+	})
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message":       "User registered successfully",
@@ -208,10 +247,20 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	user, err := helperfunctions.GetUserByEmail(c, h.db, email)
 	if err != nil {
 		if err.Error() == "user not found" {
+
+			logger.LogAuthEvent("login", "", false, logger.Fields{
+				"email":     email,
+				"reason":    "user not found",
+				"client_ip": c.ClientIP(),
+			})
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
 				"User not found", nil)
 			return
 		}
+		logger.Error("Failed to retrieve user for login", err, logger.Fields{
+			"email":     email,
+			"client_ip": c.ClientIP(),
+		})
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to retrieve user", nil)
 		return
@@ -225,6 +274,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		h.config.JWT.AccessExpiry,
 	)
 	if err != nil {
+		logger.Error("Failed to generate access token for login", err, logger.Fields{
+			"user_id": user.ID.String(),
+			"email":   email,
+		})
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
 			"Failed to generate access token", nil)
 		return
@@ -238,10 +291,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		h.config.JWT.RefreshExpiry,
 	)
 	if err != nil {
+		logger.Error("Failed to generate refresh token for login", err, logger.Fields{
+			"user_id": user.ID.String(),
+			"email":   email,
+		})
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
 			"Failed to generate refresh token", nil)
 		return
 	}
+
+	logger.LogAuthEvent("login", user.ID.String(), true, logger.Fields{
+		"email":     email,
+		"client_ip": c.ClientIP(),
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":       "Login successful",

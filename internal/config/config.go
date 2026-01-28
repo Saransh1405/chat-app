@@ -17,6 +17,7 @@ type Config struct {
 	CORS        CORSConfig
 	Redis       RedisConfig
 	FileStorage FileStorageConfig
+	Logging     LoggingConfig
 	Environment string
 }
 
@@ -70,6 +71,11 @@ type FileStorageConfig struct {
 	AllowedFileTypes []string
 }
 
+type LoggingConfig struct {
+	Level  string
+	Format string
+}
+
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
@@ -116,6 +122,10 @@ func Load() (*Config, error) {
 		Kafka: KafkaConfig{
 			Brokers: getEnvAsSlice("KAFKA_BROKERS", []string{"localhost:9092"}),
 			Topic:   getEnv("KAFKA_TOPIC", "chat-app"),
+		},
+		Logging: LoggingConfig{
+			Level:  getEnv("LOG_LEVEL", "info"),
+			Format: getEnv("LOG_FORMAT", "text"),
 		},
 		Environment: getEnv("ENVIRONMENT", "development"),
 	}

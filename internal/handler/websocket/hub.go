@@ -1,8 +1,9 @@
 package websocket
 
 import (
-	"log"
 	"sync"
+
+	"chat-app/internal/utils/logger"
 )
 
 type MessageStruct struct {
@@ -54,11 +55,17 @@ func (h *Hub) Run() {
 		select {
 		case conn := <-h.Register:
 			h.registerConnection(conn)
-			log.Printf("Connection registered: %s (user: %s)", conn.ID, conn.UserID)
+			logger.LogWebSocketEvent("connection_registered", conn.UserID, "", logger.Fields{
+				"connection_id": conn.ID,
+				"app_id":        conn.AppID,
+			})
 
 		case conn := <-h.Unregister:
 			h.unregisterConnection(conn)
-			log.Printf("Connection unregistered: %s (user: %s)", conn.ID, conn.UserID)
+			logger.LogWebSocketEvent("connection_unregistered", conn.UserID, "", logger.Fields{
+				"connection_id": conn.ID,
+				"app_id":        conn.AppID,
+			})
 
 		case broadcast := <-h.Broadcast:
 			h.broadcastToRoom(broadcast.RoomID, broadcast.Message)
@@ -89,6 +96,9 @@ func (h *Hub) unregisterConnection(conn *Connection) {
 }
 
 func (h *Hub) SubscribeToRoom(conn *Connection, roomID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	if h.RoomSubscriptions[roomID] == nil {
 		h.RoomSubscriptions[roomID] = make(map[*Connection]bool)
 	}
@@ -97,6 +107,8 @@ func (h *Hub) SubscribeToRoom(conn *Connection, roomID string) {
 }
 
 func (h *Hub) UnsubscribeFromRoom(conn *Connection, roomID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.unsubscribeFromRoom(conn, roomID)
 }
 
@@ -111,13 +123,26 @@ func (h *Hub) unsubscribeFromRoom(conn *Connection, roomID string) {
 }
 
 func (h *Hub) broadcastToRoom(roomID string, message MessageStruct) {
-	if roomConns, ok := h.RoomSubscriptions[roomID]; ok {
-		for conn := range roomConns {
-			select {
-			case conn.Send <- message:
-			default:
-				h.unregisterConnection(conn)
-			}
+	h.mu.RLock()
+	roomConns := make([]*Connection, 0)
+	if conns, ok := h.RoomSubscriptions[roomID]; ok {
+		for conn := range conns {
+			roomConns = append(roomConns, conn)
+		}
+	}
+	h.mu.RUnlock()
+
+	// Send messages outside of lock to avoid blocking
+	for _, conn := range roomConns {
+		select {
+		case conn.Send <- message:
+		default:
+			// Channel is full or closed, unregister connection
+			go func(c *Connection) {
+				h.mu.Lock()
+				h.unregisterConnection(c)
+				h.mu.Unlock()
+			}(conn)
 		}
 	}
 }

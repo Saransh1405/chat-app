@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +14,7 @@ import (
 	"chat-app/internal/handler/rest"
 	"chat-app/internal/handler/websocket"
 	"chat-app/internal/middleware"
+	"chat-app/internal/utils/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,18 +22,39 @@ import (
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		logger.Fatal("Failed to load configuration", err, logger.Fields{
+			"error": err.Error(),
+		})
 	}
+
+	// Initialize logger
+	logger.Initialize(cfg.Logging.Level, cfg.Logging.Format)
+	logger.Info("Logger initialized", logger.Fields{
+		"level":  cfg.Logging.Level,
+		"format": cfg.Logging.Format,
+	})
 
 	db, err := database.NewConnection(cfg.Database)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		logger.Fatal("Failed to connect to database", err, logger.Fields{
+			"host": cfg.Database.Host,
+			"port": cfg.Database.Port,
+			"name": cfg.Database.Name,
+		})
 	}
 	defer db.Close()
 
+	logger.Info("Database connection established", logger.Fields{
+		"host": cfg.Database.Host,
+		"port": cfg.Database.Port,
+		"name": cfg.Database.Name,
+	})
+
 	if err := database.RunMigrations(cfg.Database); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
+		logger.Fatal("Failed to run migrations", err, logger.Fields{})
 	}
+
+	logger.Info("Database migrations completed successfully")
 
 	wsHub := websocket.NewHub()
 	go wsHub.Run()
@@ -107,7 +128,7 @@ func main() {
 				users.DELETE("", userHandler.Delete)
 			}
 
-			roomHandler := rest.NewRoomHandler(db)
+			roomHandler := rest.NewRoomHandler(db, wsHub)
 			rooms := protected.Group("/rooms")
 			{
 				rooms.POST("", roomHandler.Create)
@@ -144,9 +165,9 @@ func main() {
 		}
 
 		wsHandler := websocket.NewHandler(wsHub, cfg, db)
-		ws := protected.Group("/ws")
+		ws := v1.Group("/ws")
 		{
-			ws.Use(middleware.Auth(cfg.JWT.Secret))
+			// WebSocket handler handles authentication internally (supports token in query param)
 			ws.GET("", wsHandler.HandleConnection)
 		}
 	}
@@ -161,9 +182,15 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Server starting on %s", addr)
+		logger.Info("Server starting", logger.Fields{
+			"address": addr,
+			"host":    cfg.Server.Host,
+			"port":    cfg.Server.Port,
+		})
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v", err)
+			logger.Fatal("Failed to start server", err, logger.Fields{
+				"address": addr,
+			})
 		}
 	}()
 
@@ -171,16 +198,16 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	logger.Info("Shutting down server...", logger.Fields{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		logger.Fatal("Server forced to shutdown", err, logger.Fields{})
 	}
 
-	log.Println("Server exited")
+	logger.Info("Server exited gracefully", logger.Fields{})
 }
 
 func healthCheck(c *gin.Context) {

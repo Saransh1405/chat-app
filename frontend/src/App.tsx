@@ -1,27 +1,60 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
+import { useState, useEffect } from 'react';
+import Login from './components/Login';
+import Chat from './components/Chat';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { User } from './types';
 
-const queryClient = new QueryClient();
+function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    const token = localStorage.getItem('access_token');
+
+    if (storedUser && token) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (error) {
+        console.error('Error parsing stored user:', error);
+        localStorage.removeItem('user');
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+      }
+    }
+    setLoading(false);
+  }, []);
+
+  const handleLogin = (userData: User, accessToken: string, refreshToken: string) => {
+    setUser(userData);
+    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('access_token', accessToken);
+    localStorage.setItem('refresh_token', refreshToken);
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('user');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+  };
+
+  if (loading) {
+    return <div style={{ padding: '20px' }}>Loading...</div>;
+  }
+
+  return (
+    <ErrorBoundary>
+      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+        {user ? (
+          <Chat user={user} onLogout={handleLogout} />
+        ) : (
+          <Login onLogin={handleLogin} />
+        )}
+      </div>
+    </ErrorBoundary>
+  );
+}
 
 export default App;
+

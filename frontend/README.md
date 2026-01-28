@@ -1,73 +1,88 @@
-# Welcome to your Lovable project
+# Chat App - Minimal Frontend
 
-## Project info
+A minimal frontend implementation that integrates with all backend APIs of the chat application.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Overview
 
-## How can I edit this code?
+This is a complete, minimal frontend that demonstrates integration with all backend endpoints. It includes:
 
-There are several ways of editing your application.
+- Full authentication flow (register/login)
+- Real-time chat with WebSocket support
+- Room management
+- Message sending and receiving
+- Reactions on messages
+- Typing indicators
+- All CRUD operations for applications, users, and rooms
 
-**Use Lovable**
+**Note**: The backend WebSocket handler has been updated to accept authentication tokens via query parameters (since browsers can't set custom headers for WebSocket connections). This change is in `internal/handler/websocket/handler.go` and `cmd/server/main.go`.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Features
 
-Changes made via Lovable will be committed automatically to this repo.
+- **Authentication**: Register and Login
+- **Applications**: Create, Get, List, Update, Delete
+- **Users**: Create, Get, Update, Delete
+- **Rooms**: Create, Get, List, Update, Delete, Add/Remove Members, List Members
+- **Messages**: Create, Get, List, Update, Delete
+- **Reactions**: Create, Delete, List
+- **Typing Indicators**: Real-time typing indicators
+- **WebSocket**: Real-time messaging, reactions, typing indicators, room updates
 
-**Use your preferred IDE**
+## Setup
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+1. Install dependencies:
+```bash
+npm install
+```
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+2. Start the development server:
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+The app will be available at `http://localhost:3000`
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Configuration
 
-**Use GitHub Codespaces**
+The frontend is configured to connect to the backend at `http://localhost:8080` by default. You can change this by setting environment variables:
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+- `VITE_API_URL`: Backend API URL (default: `http://localhost:8080/api/v1`)
+- `VITE_WS_URL`: WebSocket URL (default: `ws://localhost:8080/api/v1/ws`)
 
-## What technologies are used for this project?
+## Usage
 
-This project is built with:
+1. **Register/Login**: Use the login page to register a new user or login with an existing email
+2. **Create Room**: Click "Create Room" button in the sidebar
+3. **Select Room**: Click on any room in the sidebar to open it
+4. **Send Messages**: Type a message and press Enter or click Send
+5. **Add Reactions**: Click "+ React" on any message to add a reaction
+6. **View Typing Indicators**: See when users are typing in real-time
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## API Integration
 
-## How can I deploy this project?
+All backend APIs are integrated:
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+- `/api/v1/auth/*` - Authentication endpoints
+- `/api/v1/applications/*` - Application management
+- `/api/v1/users/*` - User management
+- `/api/v1/rooms/*` - Room management
+- `/api/v1/messages/*` - Message management
+- `/api/v1/reactions/*` - Reaction management
+- `/api/v1/typing/*` - Typing indicators
+- `/api/v1/ws` - WebSocket connection for real-time features
 
-## Can I connect a custom domain to my Lovable project?
+## Project Structure
 
-Yes, you can!
+```
+minimal-frontend/
+├── src/
+│   ├── api/          # API client modules
+│   ├── components/   # React components
+│   ├── types/         # TypeScript type definitions
+│   ├── App.tsx        # Main app component
+│   └── main.tsx       # Entry point
+├── index.html
+├── package.json
+├── tsconfig.json
+└── vite.config.ts
+```
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)

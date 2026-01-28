@@ -16,15 +16,17 @@ import (
 )
 
 func CreateUser(ctx *gin.Context, db *database.DB, user *models.User, appID string) error {
-	var appIDUUID uuid.UUID
+	var appIDUUID *uuid.UUID
 	var err error
+
 	if appID != "" {
-		appIDUUID, err = uuid.Parse(appID)
+		parsedUUID, err := uuid.Parse(appID)
 		if err != nil {
 			return errors.New("invalid application ID format")
 		}
+		appIDUUID = &parsedUUID
 	} else {
-		appIDUUID = uuid.Nil
+		appIDUUID = nil
 	}
 
 	query := `INSERT INTO users (application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at)
@@ -55,7 +57,12 @@ func CreateUser(ctx *gin.Context, db *database.DB, user *models.User, appID stri
 		return err
 	}
 
-	user.ApplicationID = appIDUUID
+	if appIDUUID != nil {
+		user.ApplicationID = *appIDUUID
+	} else {
+		user.ApplicationID = uuid.Nil
+	}
+
 	return nil
 }
 
@@ -75,14 +82,15 @@ func CheckIfUserExistsWithEmail(ctx *gin.Context, db *database.DB, user *models.
 	} else {
 		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at
 		         FROM users
-		         WHERE email = $1 AND deleted_at IS NULL`
+		         WHERE email = $1 AND application_id IS NULL AND deleted_at IS NULL`
 		args = []interface{}{user.Email}
 	}
 
 	var metadataJSON []byte
+	var appIDPtr *uuid.UUID
 	err := db.QueryRow(query, args...).Scan(
 		&user.ID,
-		&user.ApplicationID,
+		&appIDPtr,
 		&user.ExternalID,
 		&user.Username,
 		&user.Email,
@@ -98,6 +106,13 @@ func CheckIfUserExistsWithEmail(ctx *gin.Context, db *database.DB, user *models.
 	}
 	if err != nil {
 		return err
+	}
+
+	// Handle NULL application_id
+	if appIDPtr != nil {
+		user.ApplicationID = *appIDPtr
+	} else {
+		user.ApplicationID = uuid.Nil
 	}
 
 	if len(metadataJSON) > 0 {
@@ -125,14 +140,15 @@ func CheckIfUserExistsWithUsername(ctx *gin.Context, db *database.DB, user *mode
 	} else {
 		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at
 		         FROM users
-		         WHERE username = $1 AND deleted_at IS NULL`
+		         WHERE username = $1 AND application_id IS NULL AND deleted_at IS NULL`
 		args = []interface{}{user.Username}
 	}
 
 	var metadataJSON []byte
+	var appIDPtr *uuid.UUID
 	err := db.QueryRow(query, args...).Scan(
 		&user.ID,
-		&user.ApplicationID,
+		&appIDPtr,
 		&user.ExternalID,
 		&user.Username,
 		&user.Email,
@@ -148,6 +164,13 @@ func CheckIfUserExistsWithUsername(ctx *gin.Context, db *database.DB, user *mode
 	}
 	if err != nil {
 		return err
+	}
+
+	// Handle NULL application_id
+	if appIDPtr != nil {
+		user.ApplicationID = *appIDPtr
+	} else {
+		user.ApplicationID = uuid.Nil
 	}
 
 	if len(metadataJSON) > 0 {
