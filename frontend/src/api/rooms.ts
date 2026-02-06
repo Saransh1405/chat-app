@@ -49,6 +49,7 @@ export const roomsAPI = {
     room_id: string;
     user_id: string;
     application_id?: string;
+    user_name?: string;
     role?: string;
   }): Promise<{ message: string; member: RoomMember }> => {
     const response = await apiClient.post('/rooms/members', data);

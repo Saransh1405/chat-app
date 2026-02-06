@@ -38,6 +38,7 @@ export interface RoomMember {
   id: string;
   room_id: string;
   user_id: string;
+  username: string;
   role: string;
   joined_at: string;
   last_read_at?: string;
@@ -69,6 +70,7 @@ export interface TypingIndicator {
   id: string;
   room_id: string;
   user_id: string;
+  username: string;
   expires_at: string;
   created_at: string;
 }

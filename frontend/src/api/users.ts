@@ -38,5 +38,11 @@ export const usersAPI = {
     const response = await apiClient.delete('/users', { data: { id, application_id } });
     return response.data;
   },
+  list: async (application_id?: string): Promise<{ users: User[] }> => {
+    const params: any = {};
+    if (application_id) params.application_id = application_id;
+    const response = await apiClient.get('/users/all', { params });
+    return response.data;
+  },
 };
 

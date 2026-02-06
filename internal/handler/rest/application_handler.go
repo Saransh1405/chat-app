@@ -171,16 +171,10 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 func (h *ApplicationHandler) Get(c *gin.Context) {
 	appID := c.Query("id")
 	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
+		appIDUUID, err := uuid.Parse(appID)
+		if err != nil {
 			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
+				"Invalid application ID format", nil)
 			return
 		}
 
@@ -189,7 +183,7 @@ func (h *ApplicationHandler) Get(c *gin.Context) {
 		          WHERE id = $1 AND deleted_at IS NULL`
 
 		app := models.Application{}
-		err := h.db.QueryRow(query, appID).Scan(
+		err = h.db.QueryRow(query, appIDUUID).Scan(
 			&app.ID,
 			&app.Name,
 			&app.APIKey,
@@ -426,11 +420,9 @@ func (h *ApplicationHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	appID := req.ID.String()
-
 	var existingID uuid.UUID
 	checkQuery := `SELECT id FROM applications WHERE id = $1 AND deleted_at IS NULL`
-	err := h.db.QueryRow(checkQuery, appID).Scan(&existingID)
+	err := h.db.QueryRow(checkQuery, req.ID).Scan(&existingID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,

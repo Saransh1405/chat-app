@@ -71,23 +71,8 @@ func (h *RoomHandler) Create(c *gin.Context) {
 		return
 	}
 
-	appID := ""
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
-
-		exists, err := helperfunctions.CheckIfApplicationExistsWithId(c, h.db, appID)
+		exists, err := helperfunctions.CheckIfApplicationExistsWithId(c, h.db, req.ApplicationID.String())
 		if !exists || err != nil {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
 				"Application not found", nil)
@@ -114,7 +99,7 @@ func (h *RoomHandler) Create(c *gin.Context) {
 	if req.CreatedBy != nil {
 		var checkUserQuery string
 		var checkUserArgs []interface{}
-		if appID != "" {
+		if req.ApplicationID != nil {
 			checkUserQuery = `SELECT id FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
 			checkUserArgs = []interface{}{req.CreatedBy, req.ApplicationID}
 		} else {
@@ -157,7 +142,7 @@ func (h *RoomHandler) Create(c *gin.Context) {
 	var insertQuery string
 	var insertArgs []interface{}
 
-	if appID != "" {
+	if req.ApplicationID != nil {
 		insertQuery = `INSERT INTO rooms (application_id, name, type, description, created_by, metadata, created_at, updated_at)
 		               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		               RETURNING id, created_at, updated_at`
@@ -179,7 +164,7 @@ func (h *RoomHandler) Create(c *gin.Context) {
 
 	var fetchQuery string
 	var fetchArgs []interface{}
-	if appID != "" {
+	if req.ApplicationID != nil {
 		fetchQuery = `SELECT id, application_id, name, type, description, created_by, metadata, created_at, updated_at, deleted_at
 		              FROM rooms
 		              WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
@@ -250,16 +235,10 @@ func (h *RoomHandler) Get(c *gin.Context) {
 		return
 	}
 
-	if !validator.ValidateUUID(roomID) {
-		details := []errors.ErrorDetail{
-			{
-				Field: "id",
-				Issue: "Invalid UUID format",
-				Value: roomID,
-			},
-		}
+	roomIDUUID, err := uuid.Parse(roomID)
+	if err != nil {
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Invalid room ID format", details)
+			"Invalid room ID format", nil)
 		return
 	}
 
@@ -267,33 +246,27 @@ func (h *RoomHandler) Get(c *gin.Context) {
 	var args []interface{}
 
 	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
+		appIDUUID, err := uuid.Parse(appID)
+		if err != nil {
 			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
+				"Invalid application ID format", nil)
 			return
 		}
 		query = `SELECT id, application_id, name, type, description, created_by, metadata, created_at, updated_at, deleted_at
 		         FROM rooms
 		         WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		args = []interface{}{roomID, appID}
+		args = []interface{}{roomIDUUID, appIDUUID}
 	} else {
 		query = `SELECT id, application_id, name, type, description, created_by, metadata, created_at, updated_at, deleted_at
 		         FROM rooms
 		         WHERE id = $1 AND deleted_at IS NULL`
-		args = []interface{}{roomID}
+		args = []interface{}{roomIDUUID}
 	}
 
 	room := models.Room{}
 	var metadataJSON []byte
 
-	err := h.db.QueryRow(query, args...).Scan(
+	err = h.db.QueryRow(query, args...).Scan(
 		&room.ID,
 		&room.ApplicationID,
 		&room.Name,
@@ -334,23 +307,17 @@ func (h *RoomHandler) List(c *gin.Context) {
 	var args []interface{}
 
 	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
+		appIDUUID, err := uuid.Parse(appID)
+		if err != nil {
 			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
+				"Invalid application ID format", nil)
 			return
 		}
 		query = `SELECT id, application_id, name, type, description, created_by, metadata, created_at, updated_at, deleted_at
 		         FROM rooms
 		         WHERE application_id = $1 AND deleted_at IS NULL
 		         ORDER BY created_at DESC`
-		args = []interface{}{appID}
+		args = []interface{}{appIDUUID}
 	} else {
 		query = `SELECT id, application_id, name, type, description, created_by, metadata, created_at, updated_at, deleted_at
 		         FROM rooms
@@ -424,21 +391,9 @@ func (h *RoomHandler) Update(c *gin.Context) {
 		return
 	}
 
-	appID := ""
+	var appIDUUID *uuid.UUID
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
+		appIDUUID = req.ApplicationID
 	}
 
 	if req.Name != "" {
@@ -458,9 +413,9 @@ func (h *RoomHandler) Update(c *gin.Context) {
 
 	var checkQuery string
 	var checkArgs []interface{}
-	if appID != "" {
+	if appIDUUID != nil {
 		checkQuery = `SELECT id FROM rooms WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkArgs = []interface{}{req.ID, req.ApplicationID}
+		checkArgs = []interface{}{req.ID, *appIDUUID}
 	} else {
 		checkQuery = `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL`
 		checkArgs = []interface{}{req.ID}
@@ -524,9 +479,9 @@ func (h *RoomHandler) Update(c *gin.Context) {
 	argIndex++
 
 	var whereClause string
-	if appID != "" {
+	if appIDUUID != nil {
 		whereClause = fmt.Sprintf("WHERE id = $%d AND application_id = $%d AND deleted_at IS NULL", argIndex, argIndex+1)
-		args = append(args, req.ID, req.ApplicationID)
+		args = append(args, req.ID, *appIDUUID)
 	} else {
 		whereClause = fmt.Sprintf("WHERE id = $%d AND deleted_at IS NULL", argIndex)
 		args = append(args, req.ID)
@@ -557,11 +512,11 @@ func (h *RoomHandler) Update(c *gin.Context) {
 	// Fetch updated room
 	var fetchQuery string
 	var fetchArgs []interface{}
-	if appID != "" {
+	if appIDUUID != nil {
 		fetchQuery = `SELECT id, application_id, name, type, description, created_by, metadata, created_at, updated_at, deleted_at
 		              FROM rooms
 		              WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		fetchArgs = []interface{}{req.ID, req.ApplicationID}
+		fetchArgs = []interface{}{req.ID, *appIDUUID}
 	} else {
 		fetchQuery = `SELECT id, application_id, name, type, description, created_by, metadata, created_at, updated_at, deleted_at
 		              FROM rooms
@@ -570,7 +525,7 @@ func (h *RoomHandler) Update(c *gin.Context) {
 	}
 
 	updatedRoom := models.Room{}
-	var metadataJSON []byte
+	var metadataJSONScan []byte
 	err = h.db.QueryRow(fetchQuery, fetchArgs...).Scan(
 		&updatedRoom.ID,
 		&updatedRoom.ApplicationID,
@@ -578,7 +533,7 @@ func (h *RoomHandler) Update(c *gin.Context) {
 		&updatedRoom.Type,
 		&updatedRoom.Description,
 		&updatedRoom.CreatedBy,
-		&metadataJSON,
+		&metadataJSONScan,
 		&updatedRoom.CreatedAt,
 		&updatedRoom.UpdatedAt,
 		&updatedRoom.DeletedAt,
@@ -591,9 +546,8 @@ func (h *RoomHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if len(metadataJSON) > 0 {
-		if err := json.Unmarshal(metadataJSON, &updatedRoom.Metadata); err != nil {
-			// Metadata parsing error is not critical
+	if len(metadataJSONScan) > 0 {
+		if err := json.Unmarshal(metadataJSONScan, &updatedRoom.Metadata); err != nil {
 		}
 	}
 
@@ -636,28 +590,16 @@ func (h *RoomHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	appID := ""
+	var appIDUUID *uuid.UUID
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
+		appIDUUID = req.ApplicationID
 	}
 
 	var checkQuery string
 	var checkArgs []interface{}
-	if appID != "" {
+	if appIDUUID != nil {
 		checkQuery = `SELECT id FROM rooms WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkArgs = []interface{}{req.ID, req.ApplicationID}
+		checkArgs = []interface{}{req.ID, *appIDUUID}
 	} else {
 		checkQuery = `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL`
 		checkArgs = []interface{}{req.ID}
@@ -680,9 +622,9 @@ func (h *RoomHandler) Delete(c *gin.Context) {
 	var deleteQuery string
 	var deleteArgs []interface{}
 
-	if appID != "" {
+	if appIDUUID != nil {
 		deleteQuery = `UPDATE rooms SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND application_id = $4 AND deleted_at IS NULL`
-		deleteArgs = []interface{}{now, now, req.ID, req.ApplicationID}
+		deleteArgs = []interface{}{now, now, req.ID, *appIDUUID}
 	} else {
 		deleteQuery = `UPDATE rooms SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
 		deleteArgs = []interface{}{now, now, req.ID}
@@ -746,28 +688,16 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 		return
 	}
 
-	appID := ""
+	var appIDUUID *uuid.UUID
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
+		appIDUUID = req.ApplicationID
 	}
 
 	var checkRoomQuery string
 	var checkRoomArgs []interface{}
-	if appID != "" {
+	if appIDUUID != nil {
 		checkRoomQuery = `SELECT id FROM rooms WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkRoomArgs = []interface{}{req.RoomID, req.ApplicationID}
+		checkRoomArgs = []interface{}{req.RoomID, *appIDUUID}
 	} else {
 		checkRoomQuery = `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL`
 		checkRoomArgs = []interface{}{req.RoomID}
@@ -788,19 +718,17 @@ func (h *RoomHandler) AddMember(c *gin.Context) {
 
 	var checkUserQuery string
 	var checkUserArgs []interface{}
-	if appID != "" {
-		checkUserQuery = `SELECT id FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkUserArgs = []interface{}{req.UserID, req.ApplicationID}
+	var userName string
+	if appIDUUID != nil {
+		checkUserQuery = `SELECT id,username FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
+		checkUserArgs = []interface{}{req.UserID, *appIDUUID}
 	} else {
-		checkUserQuery = `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL`
+		checkUserQuery = `SELECT id,username FROM users WHERE id = $1 AND deleted_at IS NULL`
 		checkUserArgs = []interface{}{req.UserID}
 	}
 
-	fmt.Println("checkUserQuery", checkUserQuery)
-	fmt.Println("checkUserArgs", checkUserArgs)
-
 	var existingUserID uuid.UUID
-	err = h.db.QueryRow(checkUserQuery, checkUserArgs...).Scan(&existingUserID)
+	err = h.db.QueryRow(checkUserQuery, checkUserArgs...).Scan(&existingUserID, &userName)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
@@ -898,28 +826,16 @@ func (h *RoomHandler) RemoveMember(c *gin.Context) {
 		return
 	}
 
-	appID := ""
+	var appIDUUID *uuid.UUID
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
+		appIDUUID = req.ApplicationID
 	}
 
 	var checkRoomQuery string
 	var checkRoomArgs []interface{}
-	if appID != "" {
+	if appIDUUID != nil {
 		checkRoomQuery = `SELECT id FROM rooms WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkRoomArgs = []interface{}{req.RoomID, req.ApplicationID}
+		checkRoomArgs = []interface{}{req.RoomID, *appIDUUID}
 	} else {
 		checkRoomQuery = `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL`
 		checkRoomArgs = []interface{}{req.RoomID}
@@ -1019,54 +935,36 @@ func (h *RoomHandler) ListMembers(c *gin.Context) {
 	appID := c.Query("application_id")
 
 	if roomID == "" {
-		details := []errors.ErrorDetail{
-			{
-				Field: "room_id",
-				Issue: "Room ID is required",
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Room ID is required", details)
+			"Room ID is required", nil)
 		return
 	}
 
-	if !validator.ValidateUUID(roomID) {
-		details := []errors.ErrorDetail{
-			{
-				Field: "room_id",
-				Issue: "Invalid UUID format",
-				Value: roomID,
-			},
-		}
+	roomIDUUID, err := uuid.Parse(roomID)
+	if err != nil {
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Invalid room ID format", details)
+			"Invalid room ID format", nil)
 		return
 	}
 
 	var checkRoomQuery string
 	var checkRoomArgs []interface{}
 	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
+		appIDUUID, err := uuid.Parse(appID)
+		if err != nil {
 			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
+				"Invalid application ID format", nil)
 			return
 		}
 		checkRoomQuery = `SELECT id FROM rooms WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkRoomArgs = []interface{}{roomID, appID}
+		checkRoomArgs = []interface{}{roomIDUUID, appIDUUID}
 	} else {
 		checkRoomQuery = `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL`
-		checkRoomArgs = []interface{}{roomID}
+		checkRoomArgs = []interface{}{roomIDUUID}
 	}
 
 	var existingRoomID uuid.UUID
-	err := h.db.QueryRow(checkRoomQuery, checkRoomArgs...).Scan(&existingRoomID)
+	err = h.db.QueryRow(checkRoomQuery, checkRoomArgs...).Scan(&existingRoomID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
@@ -1078,12 +976,13 @@ func (h *RoomHandler) ListMembers(c *gin.Context) {
 		return
 	}
 
-	query := `SELECT id, room_id, user_id, role, joined_at, last_read_at
-	          FROM room_members
-	          WHERE room_id = $1
-	          ORDER BY joined_at ASC`
+	query := `SELECT rm.id, rm.room_id, rm.user_id, u.username, rm.role, rm.joined_at, rm.last_read_at
+	          FROM room_members rm
+	          JOIN users u ON rm.user_id = u.id
+	          WHERE rm.room_id = $1
+	          ORDER BY rm.joined_at ASC`
 
-	rows, err := h.db.Query(query, roomID)
+	rows, err := h.db.Query(query, roomIDUUID)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to retrieve room members", nil)
@@ -1098,6 +997,7 @@ func (h *RoomHandler) ListMembers(c *gin.Context) {
 			&member.ID,
 			&member.RoomID,
 			&member.UserID,
+			&member.Username,
 			&member.Role,
 			&member.JoinedAt,
 			&member.LastReadAt,

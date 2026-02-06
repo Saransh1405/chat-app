@@ -50,8 +50,10 @@ func main() {
 		"name": cfg.Database.Name,
 	})
 
-	if err := database.RunMigrations(cfg.Database); err != nil {
-		logger.Fatal("Failed to run migrations", err, logger.Fields{})
+	if cfg.Environment == "PRODUCTION" {
+		if err := database.RunMigrations(cfg.Database); err != nil {
+			logger.Fatal("Failed to run migrations", err, logger.Fields{})
+		}
 	}
 
 	logger.Info("Database migrations completed successfully")
@@ -59,7 +61,7 @@ func main() {
 	wsHub := websocket.NewHub()
 	go wsHub.Run()
 
-	if cfg.Environment == "production" {
+	if cfg.Environment == "PRODUCTION" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
@@ -126,6 +128,7 @@ func main() {
 				users.GET("", userHandler.Get)
 				users.PATCH("", userHandler.Update)
 				users.DELETE("", userHandler.Delete)
+				users.GET("/all", userHandler.GetUsers)
 			}
 
 			roomHandler := rest.NewRoomHandler(db, wsHub)

@@ -13,7 +13,6 @@ import (
 	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
 	"chat-app/internal/utils/logger"
-	"chat-app/internal/utils/validator"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -46,6 +45,13 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 		return
 	}
 
+	userIDUUID, err := uuid.Parse(userID)
+	if err != nil {
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid user ID format in token", nil)
+		return
+	}
+
 	var req models.ReactionCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		details := []errors.ErrorDetail{
@@ -59,59 +65,32 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Validate reaction string
 	reaction := strings.TrimSpace(req.Reaction)
 	if reaction == "" {
-		details := []errors.ErrorDetail{
-			{
-				Field: "reaction",
-				Issue: "Reaction cannot be empty",
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Reaction cannot be empty", details)
+			"Reaction cannot be empty", nil)
 		return
 	}
 
 	if len(reaction) > 10 {
-		details := []errors.ErrorDetail{
-			{
-				Field: "reaction",
-				Issue: "Reaction must be 10 characters or less",
-				Value: reaction,
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Reaction must be 10 characters or less", details)
+			"Reaction must be 10 characters or less", nil)
 		return
 	}
 
-	appID := ""
+	var appIDUUID *uuid.UUID
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
-			return
-		}
+		appIDUUID = req.ApplicationID
 	}
 
-	// Validate message exists and get room_id
 	var messageQuery string
 	var messageArgs []interface{}
-	if appID != "" {
+	if appIDUUID != nil {
 		messageQuery = `SELECT m.id, m.room_id, m.user_id 
 		                FROM messages m
 		                INNER JOIN rooms r ON m.room_id = r.id
 		                WHERE m.id = $1 AND r.application_id = $2 AND m.deleted_at IS NULL`
-		messageArgs = []interface{}{req.MessageID, req.ApplicationID}
+		messageArgs = []interface{}{req.MessageID, *appIDUUID}
 	} else {
 		messageQuery = `SELECT id, room_id, user_id 
 		                FROM messages 
@@ -120,7 +99,7 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 	}
 
 	var messageID, roomID, messageUserID uuid.UUID
-	err := h.db.QueryRow(messageQuery, messageArgs...).Scan(&messageID, &roomID, &messageUserID)
+	err = h.db.QueryRow(messageQuery, messageArgs...).Scan(&messageID, &roomID, &messageUserID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
@@ -132,9 +111,7 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Validate user is member of room
-	userIDUUID := uuid.MustParse(userID)
-	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userID, roomID.String())
+	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userIDUUID.String(), roomID.String())
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to validate room membership", nil)
@@ -146,13 +123,11 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Check if reaction already exists (unique constraint: message_id, user_id, reaction)
 	var existingReactionID uuid.UUID
 	checkQuery := `SELECT id FROM message_reactions 
 	               WHERE message_id = $1 AND user_id = $2 AND reaction = $3`
 	err = h.db.QueryRow(checkQuery, req.MessageID, userIDUUID, reaction).Scan(&existingReactionID)
 	if err == nil {
-		// Reaction already exists, return it
 		fetchQuery := `SELECT id, message_id, user_id, reaction, created_at 
 		               FROM message_reactions 
 		               WHERE id = $1`
@@ -181,7 +156,6 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Create reaction
 	insertQuery := `INSERT INTO message_reactions (message_id, user_id, reaction, created_at)
 	                VALUES ($1, $2, $3, $4)
 	                RETURNING id, created_at`
@@ -203,7 +177,6 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Broadcast reaction via websocket
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -215,27 +188,20 @@ func (h *ReactionHandler) Create(c *gin.Context) {
 			}
 		}()
 
-		select {
-		case h.wsHub.Broadcast <- struct {
-			RoomID  string
-			Message websocket.MessageStruct
-		}{
-			RoomID: roomID.String(),
-			Message: websocket.MessageStruct{
-				Type:    "reaction_added",
-				Payload: reactionModel,
-			},
-		}:
-			logger.Debug("Reaction broadcasted via WebSocket", logger.Fields{
-				"room_id":    roomID.String(),
-				"message_id": req.MessageID.String(),
-				"reaction":   reaction,
-			})
-		case <-time.After(5 * time.Second):
-			logger.Warn("WebSocket reaction broadcast timeout", logger.Fields{
-				"room_id":    roomID.String(),
-				"message_id": req.MessageID.String(),
-			})
+		if h.wsHub != nil {
+			select {
+			case h.wsHub.Broadcast <- struct {
+				RoomID  string
+				Message websocket.MessageStruct
+			}{
+				RoomID: roomID.String(),
+				Message: websocket.MessageStruct{
+					Type:    "reaction_added",
+					Payload: reactionModel,
+				},
+			}:
+			case <-time.After(5 * time.Second):
+			}
 		}
 	}()
 
@@ -260,6 +226,13 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	userIDUUID, err := uuid.Parse(userID)
+	if err != nil {
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid user ID format in token", nil)
+		return
+	}
+
 	var req models.ReactionDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		details := []errors.ErrorDetail{
@@ -273,46 +246,26 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Validate reaction string
 	reaction := strings.TrimSpace(req.Reaction)
 	if reaction == "" {
-		details := []errors.ErrorDetail{
-			{
-				Field: "reaction",
-				Issue: "Reaction cannot be empty",
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Reaction cannot be empty", details)
+			"Reaction cannot be empty", nil)
 		return
 	}
 
-	appID := ""
+	var appIDUUID *uuid.UUID
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
-			return
-		}
+		appIDUUID = req.ApplicationID
 	}
 
-	// Validate message exists and get room_id
 	var messageQuery string
 	var messageArgs []interface{}
-	if appID != "" {
+	if appIDUUID != nil {
 		messageQuery = `SELECT m.id, m.room_id 
 		                FROM messages m
 		                INNER JOIN rooms r ON m.room_id = r.id
 		                WHERE m.id = $1 AND r.application_id = $2 AND m.deleted_at IS NULL`
-		messageArgs = []interface{}{req.MessageID, req.ApplicationID}
+		messageArgs = []interface{}{req.MessageID, *appIDUUID}
 	} else {
 		messageQuery = `SELECT id, room_id 
 		                FROM messages 
@@ -321,7 +274,7 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 	}
 
 	var messageID, roomID uuid.UUID
-	err := h.db.QueryRow(messageQuery, messageArgs...).Scan(&messageID, &roomID)
+	err = h.db.QueryRow(messageQuery, messageArgs...).Scan(&messageID, &roomID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
@@ -333,9 +286,7 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Validate user is member of room
-	userIDUUID := uuid.MustParse(userID)
-	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userID, roomID.String())
+	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userIDUUID.String(), roomID.String())
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to validate room membership", nil)
@@ -347,7 +298,6 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Check if reaction exists and belongs to user
 	var existingReactionID uuid.UUID
 	checkQuery := `SELECT id FROM message_reactions 
 	               WHERE message_id = $1 AND user_id = $2 AND reaction = $3`
@@ -363,7 +313,6 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Delete reaction
 	deleteQuery := `DELETE FROM message_reactions 
 	                WHERE message_id = $1 AND user_id = $2 AND reaction = $3`
 	result, err := h.db.Exec(deleteQuery, req.MessageID, userIDUUID, reaction)
@@ -386,7 +335,6 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Broadcast reaction deletion via websocket
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -398,31 +346,24 @@ func (h *ReactionHandler) Delete(c *gin.Context) {
 			}
 		}()
 
-		select {
-		case h.wsHub.Broadcast <- struct {
-			RoomID  string
-			Message websocket.MessageStruct
-		}{
-			RoomID: roomID.String(),
-			Message: websocket.MessageStruct{
-				Type: "reaction_removed",
-				Payload: map[string]interface{}{
-					"message_id": req.MessageID,
-					"user_id":    userIDUUID,
-					"reaction":   reaction,
+		if h.wsHub != nil {
+			select {
+			case h.wsHub.Broadcast <- struct {
+				RoomID  string
+				Message websocket.MessageStruct
+			}{
+				RoomID: roomID.String(),
+				Message: websocket.MessageStruct{
+					Type: "reaction_removed",
+					Payload: map[string]interface{}{
+						"message_id": req.MessageID,
+						"user_id":    userIDUUID,
+						"reaction":   reaction,
+					},
 				},
-			},
-		}:
-			logger.Debug("Reaction deletion broadcasted via WebSocket", logger.Fields{
-				"room_id":    roomID.String(),
-				"message_id": req.MessageID.String(),
-				"reaction":   reaction,
-			})
-		case <-time.After(5 * time.Second):
-			logger.Warn("WebSocket reaction deletion broadcast timeout", logger.Fields{
-				"room_id":    roomID.String(),
-				"message_id": req.MessageID.String(),
-			})
+			}:
+			case <-time.After(5 * time.Second):
+			}
 		}
 	}()
 
@@ -436,65 +377,32 @@ func (h *ReactionHandler) List(c *gin.Context) {
 	appID := c.Query("application_id")
 
 	if messageID == "" {
-		details := []errors.ErrorDetail{
-			{
-				Field: "message_id",
-				Issue: "Message ID is required",
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Message ID is required", details)
-		return
-	}
-
-	if !validator.ValidateUUID(messageID) {
-		details := []errors.ErrorDetail{
-			{
-				Field: "message_id",
-				Issue: "Invalid UUID format",
-				Value: messageID,
-			},
-		}
-		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Invalid message ID format", details)
+			"Message ID is required", nil)
 		return
 	}
 
 	messageIDUUID, err := uuid.Parse(messageID)
 	if err != nil {
-		details := []errors.ErrorDetail{
-			{
-				Field: "message_id",
-				Issue: "Invalid UUID format",
-				Value: messageID,
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Invalid message ID format", details)
+			"Invalid message ID format", nil)
 		return
 	}
 
-	// Validate message exists
 	var messageQuery string
 	var messageArgs []interface{}
 	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
+		appIDUUID, err := uuid.Parse(appID)
+		if err != nil {
 			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
+				"Invalid application ID format", nil)
 			return
 		}
 		messageQuery = `SELECT m.id 
 		                FROM messages m
 		                INNER JOIN rooms r ON m.room_id = r.id
 		                WHERE m.id = $1 AND r.application_id = $2 AND m.deleted_at IS NULL`
-		messageArgs = []interface{}{messageIDUUID, appID}
+		messageArgs = []interface{}{messageIDUUID, appIDUUID}
 	} else {
 		messageQuery = `SELECT id 
 		                FROM messages 
@@ -515,7 +423,6 @@ func (h *ReactionHandler) List(c *gin.Context) {
 		return
 	}
 
-	// Fetch all reactions for the message
 	query := `SELECT id, message_id, user_id, reaction, created_at 
 	          FROM message_reactions 
 	          WHERE message_id = $1 

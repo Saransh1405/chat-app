@@ -40,21 +40,9 @@ func (h *UserHandler) Create(c *gin.Context) {
 		return
 	}
 
-	appID := ""
+	appIDUUIDString := ""
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
+		appIDUUIDString = req.ApplicationID.String()
 	}
 
 	user := models.User{
@@ -95,19 +83,19 @@ func (h *UserHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &user, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &user, appIDUUIDString); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this email already exists", nil)
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &user, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &user, appIDUUIDString); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this username already exists", nil)
 		return
 	}
 
-	err := helperfunctions.CreateUser(c, h.db, &user, appID)
+	err := helperfunctions.CreateUser(c, h.db, &user, appIDUUIDString)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to create user", nil)
@@ -168,24 +156,24 @@ func (h *UserHandler) DirectCreate(c *gin.Context) {
 		return
 	}
 
-	appID := ""
+	appIDUUIDString := ""
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
+		appIDUUIDString = req.ApplicationID.String()
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &user, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &user, appIDUUIDString); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this email already exists", nil)
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &user, appID); err == nil {
+	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &user, appIDUUIDString); err == nil {
 		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
 			"User with this username already exists", nil)
 		return
 	}
 
-	err := helperfunctions.CreateUser(c, h.db, &user, appID)
+	err := helperfunctions.CreateUser(c, h.db, &user, appIDUUIDString)
 	if err != nil {
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to create user", nil)
@@ -206,52 +194,30 @@ func (h *UserHandler) Get(c *gin.Context) {
 	var args []interface{}
 
 	if userID != "" {
-		if !validator.ValidateUUID(userID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "id",
-					Issue: "Invalid UUID format",
-					Value: userID,
-				},
-			}
+		userIDUUID, err := uuid.Parse(userID)
+		if err != nil {
 			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid user ID format", details)
+				"Invalid user ID format", nil)
 			return
 		}
 		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 		         FROM users 
 		         WHERE id = $1 AND deleted_at IS NULL`
-		args = []interface{}{userID}
+		args = []interface{}{userIDUUID}
 	} else if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
+		appIDUUID, err := uuid.Parse(appID)
+		if err != nil {
 			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
+				"Invalid application ID format", nil)
 			return
 		}
 		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 		         FROM users 
 		         WHERE application_id = $1 AND deleted_at IS NULL`
-		args = []interface{}{appID}
+		args = []interface{}{appIDUUID}
 	} else {
-		details := []errors.ErrorDetail{
-			{
-				Field: "id",
-				Issue: "Either user ID or application ID is required",
-			},
-			{
-				Field: "application_id",
-				Issue: "Either user ID or application ID is required",
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Either user ID or application ID is required", details)
+			"Either user ID or application ID is required", nil)
 		return
 	}
 
@@ -308,22 +274,10 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	userID := req.ID.String()
-	appID := ""
+	userIDUUID := req.ID
+	var appIDUUID *uuid.UUID
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
+		appIDUUID = req.ApplicationID
 	}
 
 	updateData := models.User{
@@ -365,24 +319,12 @@ func (h *UserHandler) Update(c *gin.Context) {
 
 	var checkQuery string
 	var checkArgs []interface{}
-	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
+	if appIDUUID != nil {
 		checkQuery = `SELECT id FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkArgs = []interface{}{userID, appID}
+		checkArgs = []interface{}{userIDUUID, *appIDUUID}
 	} else {
 		checkQuery = `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL`
-		checkArgs = []interface{}{userID}
+		checkArgs = []interface{}{userIDUUID}
 	}
 
 	var existingID uuid.UUID
@@ -401,12 +343,12 @@ func (h *UserHandler) Update(c *gin.Context) {
 	if updateData.Email != nil && *updateData.Email != "" {
 		var emailCheckQuery string
 		var emailCheckArgs []interface{}
-		if appID != "" {
+		if appIDUUID != nil {
 			emailCheckQuery = `SELECT id FROM users WHERE email = $1 AND application_id = $2 AND id != $3 AND deleted_at IS NULL`
-			emailCheckArgs = []interface{}{*updateData.Email, appID, userID}
+			emailCheckArgs = []interface{}{*updateData.Email, *appIDUUID, userIDUUID}
 		} else {
 			emailCheckQuery = `SELECT id FROM users WHERE email = $1 AND id != $2 AND deleted_at IS NULL`
-			emailCheckArgs = []interface{}{*updateData.Email, userID}
+			emailCheckArgs = []interface{}{*updateData.Email, userIDUUID}
 		}
 
 		var duplicateID uuid.UUID
@@ -425,12 +367,12 @@ func (h *UserHandler) Update(c *gin.Context) {
 	if updateData.Username != "" {
 		var usernameCheckQuery string
 		var usernameCheckArgs []interface{}
-		if appID != "" {
+		if appIDUUID != nil {
 			usernameCheckQuery = `SELECT id FROM users WHERE username = $1 AND application_id = $2 AND id != $3 AND deleted_at IS NULL`
-			usernameCheckArgs = []interface{}{updateData.Username, appID, userID}
+			usernameCheckArgs = []interface{}{updateData.Username, *appIDUUID, userIDUUID}
 		} else {
 			usernameCheckQuery = `SELECT id FROM users WHERE username = $1 AND id != $2 AND deleted_at IS NULL`
-			usernameCheckArgs = []interface{}{updateData.Username, userID}
+			usernameCheckArgs = []interface{}{updateData.Username, userIDUUID}
 		}
 
 		var duplicateID uuid.UUID
@@ -497,12 +439,12 @@ func (h *UserHandler) Update(c *gin.Context) {
 	argIndex++
 
 	var whereClause string
-	if appID != "" {
+	if appIDUUID != nil {
 		whereClause = fmt.Sprintf("WHERE id = $%d AND application_id = $%d AND deleted_at IS NULL", argIndex, argIndex+1)
-		args = append(args, userID, appID)
+		args = append(args, userIDUUID, *appIDUUID)
 	} else {
 		whereClause = fmt.Sprintf("WHERE id = $%d AND deleted_at IS NULL", argIndex)
-		args = append(args, userID)
+		args = append(args, userIDUUID)
 	}
 
 	updateQuery := fmt.Sprintf("UPDATE users SET %s %s", strings.Join(updateFields, ", "), whereClause)
@@ -529,20 +471,20 @@ func (h *UserHandler) Update(c *gin.Context) {
 
 	var fetchQuery string
 	var fetchArgs []interface{}
-	if appID != "" {
+	if appIDUUID != nil {
 		fetchQuery = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 		              FROM users 
 		              WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		fetchArgs = []interface{}{userID, appID}
+		fetchArgs = []interface{}{userIDUUID, *appIDUUID}
 	} else {
 		fetchQuery = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 		              FROM users 
 		              WHERE id = $1 AND deleted_at IS NULL`
-		fetchArgs = []interface{}{userID}
+		fetchArgs = []interface{}{userIDUUID}
 	}
 
 	updatedUser := models.User{}
-	var metadataJSON []byte
+	var metadataJSONScan []byte
 	err = h.db.QueryRow(fetchQuery, fetchArgs...).Scan(
 		&updatedUser.ID,
 		&updatedUser.ApplicationID,
@@ -550,7 +492,7 @@ func (h *UserHandler) Update(c *gin.Context) {
 		&updatedUser.Username,
 		&updatedUser.Email,
 		&updatedUser.AvatarURL,
-		&metadataJSON,
+		&metadataJSONScan,
 		&updatedUser.CreatedAt,
 		&updatedUser.UpdatedAt,
 		&updatedUser.DeletedAt,
@@ -563,8 +505,8 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if len(metadataJSON) > 0 {
-		if err := json.Unmarshal(metadataJSON, &updatedUser.Metadata); err != nil {
+	if len(metadataJSONScan) > 0 {
+		if err := json.Unmarshal(metadataJSONScan, &updatedUser.Metadata); err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"message": "User updated successfully",
 				"user":    updatedUser,
@@ -593,44 +535,20 @@ func (h *UserHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	userID := req.ID.String()
-	appID := ""
+	userIDUUID := req.ID
+	var appIDUUID *uuid.UUID
 	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
+		appIDUUID = req.ApplicationID
 	}
 
 	var checkQuery string
 	var checkArgs []interface{}
-	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID", details)
-			return
-		}
+	if appIDUUID != nil {
 		checkQuery = `SELECT id FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkArgs = []interface{}{userID, appID}
+		checkArgs = []interface{}{userIDUUID, *appIDUUID}
 	} else {
 		checkQuery = `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL`
-		checkArgs = []interface{}{userID}
+		checkArgs = []interface{}{userIDUUID}
 	}
 
 	var existingID uuid.UUID
@@ -650,12 +568,12 @@ func (h *UserHandler) Delete(c *gin.Context) {
 	var deleteArgs []interface{}
 	now := time.Now()
 
-	if appID != "" {
+	if appIDUUID != nil {
 		deleteQuery = `UPDATE users SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND application_id = $4 AND deleted_at IS NULL`
-		deleteArgs = []interface{}{now, now, userID, appID}
+		deleteArgs = []interface{}{now, now, userIDUUID, *appIDUUID}
 	} else {
 		deleteQuery = `UPDATE users SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
-		deleteArgs = []interface{}{now, now, userID}
+		deleteArgs = []interface{}{now, now, userIDUUID}
 	}
 
 	result, err := h.db.Exec(deleteQuery, deleteArgs...)
@@ -680,5 +598,98 @@ func (h *UserHandler) Delete(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "User deleted successfully",
+	})
+}
+
+func (h *UserHandler) GetUsers(c *gin.Context) {
+	var req models.UserGetRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		details := []errors.ErrorDetail{
+			{
+				Field: "query_params",
+				Issue: "Invalid query parameters",
+			},
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid query parameters", details)
+		return
+	}
+
+	var appID uuid.UUID
+	if req.ApplicationID != nil && *req.ApplicationID != "" {
+		appID, err := uuid.Parse(*req.ApplicationID)
+		if err != nil {
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application_id format", nil)
+			return
+		}
+
+		if appID == uuid.Nil {
+			appID = uuid.Nil
+		}
+	}
+
+	var query string
+	var args []interface{}
+	if appID != uuid.Nil {
+		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
+		          FROM users 
+		          WHERE application_id = $1 AND deleted_at IS NULL`
+		args = []interface{}{appID}
+	} else {
+		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
+		          FROM users 
+		          WHERE deleted_at IS NULL`
+		args = []interface{}{}
+	}
+
+	fmt.Println(query)
+	fmt.Println(args)
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve users", nil)
+		return
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var user models.User
+		var appID *uuid.UUID // Use pointer for nullable application_id
+		err := rows.Scan(
+			&user.ID,
+			&appID,
+			&user.ExternalID,
+			&user.Username,
+			&user.Email,
+			&user.AvatarURL,
+			&user.Metadata,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+			&user.DeletedAt,
+		)
+		if err != nil {
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to retrieve users", nil)
+			return
+		}
+
+		if appID != nil {
+			user.ApplicationID = *appID
+		}
+
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve users", nil)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"users": users,
 	})
 }

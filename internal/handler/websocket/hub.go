@@ -132,12 +132,41 @@ func (h *Hub) broadcastToRoom(roomID string, message MessageStruct) {
 	}
 	h.mu.RUnlock()
 
+	logger.Info("Broadcasting to room", logger.Fields{
+		"room_id":          roomID,
+		"subscriber_count": len(roomConns),
+		"message_type":     message.Type,
+	})
+
+	if len(roomConns) == 0 {
+		logger.Warn("No subscribers found for room", logger.Fields{
+			"room_id": roomID,
+			"available_rooms": func() []string {
+				h.mu.RLock()
+				defer h.mu.RUnlock()
+				rooms := make([]string, 0, len(h.RoomSubscriptions))
+				for r := range h.RoomSubscriptions {
+					rooms = append(rooms, r)
+				}
+				return rooms
+			}(),
+		})
+		return
+	}
+
 	// Send messages outside of lock to avoid blocking
+	sentCount := 0
 	for _, conn := range roomConns {
 		select {
 		case conn.Send <- message:
+			sentCount++
 		default:
 			// Channel is full or closed, unregister connection
+			logger.Warn("Failed to send message to connection, channel full or closed", logger.Fields{
+				"connection_id": conn.ID,
+				"user_id":       conn.UserID,
+				"room_id":       roomID,
+			})
 			go func(c *Connection) {
 				h.mu.Lock()
 				h.unregisterConnection(c)
@@ -145,6 +174,12 @@ func (h *Hub) broadcastToRoom(roomID string, message MessageStruct) {
 			}(conn)
 		}
 	}
+
+	logger.Info("Broadcast completed", logger.Fields{
+		"room_id":       roomID,
+		"total_sent":    sentCount,
+		"total_targets": len(roomConns),
+	})
 }
 
 func (h *Hub) GetRoomConnections(roomID string) int {

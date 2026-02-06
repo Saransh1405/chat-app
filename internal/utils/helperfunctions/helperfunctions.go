@@ -335,8 +335,8 @@ func CheckIfApplicationExistsWithId(ctx *gin.Context, db *database.DB, applicati
 }
 
 func SaveTypingIndicatorToDB(ctx *gin.Context, db *database.DB, typing *models.TypingIndicator) (*models.TypingIndicator, error) {
-	query := `INSERT INTO typing_indicators (room_id, user_id, expires_at, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, $5)
+	query := `INSERT INTO typing_indicators (room_id, user_id, expires_at, created_at)
+	          VALUES ($1, $2, $3, $4)
 	          RETURNING id, room_id, user_id, created_at, expires_at`
 
 	now := time.Now()
@@ -346,7 +346,6 @@ func SaveTypingIndicatorToDB(ctx *gin.Context, db *database.DB, typing *models.T
 		typing.RoomID,
 		typing.UserID,
 		typing.ExpiresAt,
-		now,
 		now,
 	).Scan(&typing.ID, &typing.RoomID, &typing.UserID, &typing.CreatedAt, &typing.ExpiresAt)
 

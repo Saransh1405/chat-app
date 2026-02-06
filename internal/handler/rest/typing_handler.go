@@ -9,9 +9,9 @@ import (
 	"chat-app/internal/models"
 	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
-	"chat-app/internal/utils/validator"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type TypingHandler struct {
@@ -40,24 +40,18 @@ func (h *TypingHandler) Create(c *gin.Context) {
 		return
 	}
 
-	appID := ""
-	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
-			return
-		}
+	var appIDUUID *uuid.UUID
+	if req.ApplicationID != nil && *req.ApplicationID != uuid.Nil {
+		appIDUUID = req.ApplicationID
 	}
 
-	if appID != "" {
+	var user models.User
+	if req.UserID == uuid.Nil {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	if appIDUUID != nil {
+		appID := *appIDUUID
 		app := models.Application{}
 		err := h.db.QueryRow("SELECT id FROM applications WHERE id = $1 AND deleted_at IS NULL", appID).Scan(&app.ID)
 		if err != nil {
@@ -74,16 +68,14 @@ func (h *TypingHandler) Create(c *gin.Context) {
 			return
 		}
 
-		user := models.User{}
-		err = h.db.QueryRow("SELECT id FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL", req.UserID, appID).Scan(&user.ID)
+		err = h.db.QueryRow("SELECT id, username FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL", req.UserID, appID).Scan(&user.ID, &user.Username)
 		if err != nil {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
 				"User not found", nil)
 			return
 		}
 	} else {
-		user := models.User{}
-		err := h.db.QueryRow("SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL", req.UserID).Scan(&user.ID)
+		err := h.db.QueryRow("SELECT id, username FROM users WHERE id = $1 AND deleted_at IS NULL", req.UserID).Scan(&user.ID, &user.Username)
 		if err != nil {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
 				"User not found", nil)
@@ -99,7 +91,7 @@ func (h *TypingHandler) Create(c *gin.Context) {
 		}
 
 		member := models.RoomMember{}
-		err = h.db.QueryRow("SELECT id FROM room_members WHERE user_id = $1 AND room_id = $2 AND deleted_at IS NULL", req.UserID, req.RoomID).Scan(&member.ID)
+		err = h.db.QueryRow("SELECT id FROM room_members WHERE user_id = $1 AND room_id = $2", req.UserID, req.RoomID).Scan(&member.ID)
 		if err != nil {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
 				"User is not a member of the room", nil)
@@ -110,6 +102,7 @@ func (h *TypingHandler) Create(c *gin.Context) {
 	typing := models.TypingIndicator{
 		RoomID:    req.RoomID,
 		UserID:    req.UserID,
+		Username:  user.Username,
 		ExpiresAt: time.Now().Add(10 * time.Second),
 	}
 

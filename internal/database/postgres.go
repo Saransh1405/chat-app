@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"strings"
 	"time"
 
 	"chat-app/internal/config"
@@ -19,9 +20,18 @@ type DB struct {
 	*sql.DB
 }
 
-func NewConnection(cfg config.DatabaseConfig) (*DB, error) {
+func constructDSN(cfg config.DatabaseConfig) string {
 	var dsn string
-	if cfg.Host != "supabase" {
+	if cfg.URL != "" {
+		dsn = cfg.URL
+		if !strings.Contains(dsn, "prefer_simple_protocol") {
+			separator := "?"
+			if strings.Contains(dsn, "?") {
+				separator = "&"
+			}
+			dsn += separator + "prefer_simple_protocol=true"
+		}
+	} else {
 		dsn = fmt.Sprintf(
 			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 			cfg.Host,
@@ -31,13 +41,17 @@ func NewConnection(cfg config.DatabaseConfig) (*DB, error) {
 			cfg.Name,
 			cfg.SSLMode,
 		)
-	} else {
-		dsn = fmt.Sprintf(
-			"%s",
-			cfg.URL,
-		)
+		if !strings.Contains(dsn, "prefer_simple_protocol") {
+			dsn += " prefer_simple_protocol=true"
+		}
 	}
+	return dsn
+}
 
+func NewConnection(cfg config.DatabaseConfig) (*DB, error) {
+	dsn := constructDSN(cfg)
+
+	// Create pool
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
@@ -46,10 +60,14 @@ func NewConnection(cfg config.DatabaseConfig) (*DB, error) {
 	db.SetMaxOpenConns(cfg.MaxConnections)
 	db.SetMaxIdleConns(cfg.MaxIdleConnections)
 	db.SetConnMaxLifetime(cfg.ConnectionMaxLifetime)
+	db.SetConnMaxIdleTime(5 * time.Minute)
 
+	// Test connection
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
+
+	fmt.Println("✅ Database connection established")
 
 	return &DB{db}, nil
 }
@@ -65,23 +83,7 @@ func (db *DB) Close() error {
 }
 
 func RunMigrations(cfg config.DatabaseConfig) error {
-	var dsn string
-	if cfg.Host != "supabase" {
-		dsn = fmt.Sprintf(
-			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-			cfg.Host,
-			cfg.Port,
-			cfg.User,
-			cfg.Password,
-			cfg.Name,
-			cfg.SSLMode,
-		)
-	} else {
-		dsn = fmt.Sprintf(
-			"%s",
-			cfg.URL,
-		)
-	}
+	dsn := constructDSN(cfg)
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {

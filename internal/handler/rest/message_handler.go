@@ -14,7 +14,6 @@ import (
 	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
 	"chat-app/internal/utils/logger"
-	"chat-app/internal/utils/validator"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -72,24 +71,12 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	appID := ""
-	if req.ApplicationID != nil {
-		appID = req.ApplicationID.String()
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
-			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
-			return
-		}
+	userIDUUID, err := uuid.Parse(userID)
+	if err != nil {
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid user ID format in token", nil)
+		return
 	}
-
-	userIDUUID := uuid.MustParse(userID)
 	roomIDUUID := req.RoomID
 
 	isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(h.db, userID, req.RoomID.String())
@@ -128,22 +115,23 @@ func (h *MessageHandler) Create(c *gin.Context) {
 	startTime := time.Now()
 	message, err := helperfunctions.SaveMessageToDB(c, h.db, &messageData)
 	if err != nil {
-		logger.Error("Failed to save message", err, logger.Fields{
+		logger.Error("Failed to save message to database", err, logger.Fields{
 			"user_id":     userID,
 			"room_id":     req.RoomID.String(),
 			"content_len": len(req.Content),
 			"duration_ms": time.Since(startTime).Milliseconds(),
 		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to save message", nil)
 		return
 	}
 
 	logger.Info("Message created successfully", logger.Fields{
-		"message_id": message.ID.String(),
-		"user_id":    userID,
-		"room_id":    req.RoomID.String(),
-		"type":       message.MessageType,
+		"message_id":  message.ID.String(),
+		"user_id":     userID,
+		"room_id":     req.RoomID.String(),
+		"type":        message.MessageType,
 		"duration_ms": time.Since(startTime).Milliseconds(),
 	})
 
@@ -151,14 +139,13 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		defer func() {
 			if r := recover(); r != nil {
 				logger.Error("Panic in WebSocket broadcast", fmt.Errorf("%v", r), logger.Fields{
-					"room_id":   message.RoomID.String(),
+					"room_id":    message.RoomID.String(),
 					"message_id": message.ID.String(),
 				})
 			}
 		}()
-		
-		select {
-		case h.wsHub.Broadcast <- struct {
+
+		h.wsHub.Broadcast <- struct {
 			RoomID  string
 			Message websocket.MessageStruct
 		}{
@@ -167,17 +154,11 @@ func (h *MessageHandler) Create(c *gin.Context) {
 				Type:    "message",
 				Payload: message,
 			},
-		}:
-			logger.Debug("Message broadcasted via WebSocket", logger.Fields{
-				"room_id":   message.RoomID.String(),
-				"message_id": message.ID.String(),
-			})
-		case <-time.After(5 * time.Second):
-			logger.Warn("WebSocket broadcast timeout", logger.Fields{
-				"room_id":   message.RoomID.String(),
-				"message_id": message.ID.String(),
-			})
 		}
+		logger.Debug("Message broadcasted via WebSocket", logger.Fields{
+			"room_id":    message.RoomID.String(),
+			"message_id": message.ID.String(),
+		})
 	}()
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -192,52 +173,28 @@ func (h *MessageHandler) Get(c *gin.Context) {
 	appID := c.Query("application_id")
 
 	if messageID == "" {
-		details := []errors.ErrorDetail{
-			{
-				Field: "id",
-				Issue: "Message ID is required",
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Message ID is required", details)
+			"Message ID is required", nil)
 		return
 	}
 
-	if !validator.ValidateUUID(messageID) {
-		details := []errors.ErrorDetail{
-			{
-				Field: "id",
-				Issue: "Invalid UUID format",
-				Value: messageID,
-			},
-		}
+	messageIDUUID, err := uuid.Parse(messageID)
+	if err != nil {
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Invalid message ID format", details)
+			"Invalid message ID format", nil)
 		return
 	}
 
 	if roomID == "" {
-		details := []errors.ErrorDetail{
-			{
-				Field: "room_id",
-				Issue: "Room ID is required",
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Room ID is required", details)
+			"Room ID is required", nil)
 		return
 	}
 
-	if !validator.ValidateUUID(roomID) {
-		details := []errors.ErrorDetail{
-			{
-				Field: "room_id",
-				Issue: "Invalid UUID format",
-				Value: roomID,
-			},
-		}
+	roomIDUUID, err := uuid.Parse(roomID)
+	if err != nil {
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Invalid room ID format", details)
+			"Invalid room ID format", nil)
 		return
 	}
 
@@ -245,16 +202,10 @@ func (h *MessageHandler) Get(c *gin.Context) {
 	var args []interface{}
 
 	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
+		appIDUUID, err := uuid.Parse(appID)
+		if err != nil {
 			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
+				"Invalid application ID format", nil)
 			return
 		}
 		query = `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
@@ -262,20 +213,20 @@ func (h *MessageHandler) Get(c *gin.Context) {
 		         FROM messages m
 		         INNER JOIN rooms r ON m.room_id = r.id
 		         WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
-		args = []interface{}{messageID, roomID, appID}
+		args = []interface{}{messageIDUUID, roomIDUUID, appIDUUID}
 	} else {
 		query = `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
 		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
 		         FROM messages m
 		         WHERE m.id = $1 AND m.room_id = $2 AND m.deleted_at IS NULL`
-		args = []interface{}{messageID, roomID}
+		args = []interface{}{messageIDUUID, roomIDUUID}
 	}
 
 	message := models.Message{}
 	var metadataJSON []byte
 	var replyToUUID *uuid.UUID
 
-	err := h.db.QueryRow(query, args...).Scan(
+	err = h.db.QueryRow(query, args...).Scan(
 		&message.ID,
 		&message.RoomID,
 		&message.UserID,
@@ -295,6 +246,11 @@ func (h *MessageHandler) Get(c *gin.Context) {
 				"Message not found", nil)
 			return
 		}
+		logger.Error("Failed to retrieve message", err, logger.Fields{
+			"message_id": messageID,
+			"room_id":    roomID,
+		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to retrieve message", nil)
 		return
@@ -304,6 +260,10 @@ func (h *MessageHandler) Get(c *gin.Context) {
 
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &message.Metadata); err != nil {
+			logger.Error("Failed to parse message metadata", err, logger.Fields{
+				"message_id": message.ID.String(),
+			})
+			c.Error(err)
 			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
 				"Failed to parse message metadata", nil)
 			return
@@ -320,27 +280,15 @@ func (h *MessageHandler) List(c *gin.Context) {
 	appID := c.Query("application_id")
 
 	if roomID == "" {
-		details := []errors.ErrorDetail{
-			{
-				Field: "room_id",
-				Issue: "Room ID is required",
-			},
-		}
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Room ID is required", details)
+			"Room ID is required", nil)
 		return
 	}
 
-	if !validator.ValidateUUID(roomID) {
-		details := []errors.ErrorDetail{
-			{
-				Field: "room_id",
-				Issue: "Invalid UUID format",
-				Value: roomID,
-			},
-		}
+	roomIDUUID, err := uuid.Parse(roomID)
+	if err != nil {
 		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Invalid room ID format", details)
+			"Invalid room ID format", nil)
 		return
 	}
 
@@ -357,19 +305,12 @@ func (h *MessageHandler) List(c *gin.Context) {
 	}
 
 	var rows *sql.Rows
-	var err error
 
 	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			details := []errors.ErrorDetail{
-				{
-					Field: "application_id",
-					Issue: "Invalid UUID format",
-					Value: appID,
-				},
-			}
+		appIDUUID, err := uuid.Parse(appID)
+		if err != nil {
 			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-				"Invalid application ID format", details)
+				"Invalid application ID format", nil)
 			return
 		}
 		query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
@@ -380,7 +321,7 @@ func (h *MessageHandler) List(c *gin.Context) {
 		         ORDER BY m.created_at DESC
 		         LIMIT $3 OFFSET $4`
 
-		rows, err = h.db.Query(query, roomID, appID, limit, offset)
+		rows, err = h.db.Query(query, roomIDUUID, appIDUUID, limit, offset)
 	} else {
 		query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
 		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
@@ -389,9 +330,16 @@ func (h *MessageHandler) List(c *gin.Context) {
 		         ORDER BY m.created_at DESC
 		         LIMIT $2 OFFSET $3`
 
-		rows, err = h.db.Query(query, roomID, limit, offset)
+		rows, err = h.db.Query(query, roomIDUUID, limit, offset)
 	}
 	if err != nil {
+		logger.Error("Failed to retrieve messages from database", err, logger.Fields{
+			"room_id": roomID,
+			"app_id":  appID,
+			"limit":   limit,
+			"offset":  offset,
+		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to retrieve messages", nil)
 		return
@@ -435,6 +383,10 @@ func (h *MessageHandler) List(c *gin.Context) {
 	}
 
 	if err = rows.Err(); err != nil {
+		logger.Error("Row error while retrieving messages", err, logger.Fields{
+			"room_id": roomID,
+		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to retrieve messages", nil)
 		return
@@ -458,6 +410,13 @@ func (h *MessageHandler) Update(c *gin.Context) {
 
 	userID, ok := userIDStr.(string)
 	if !ok {
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid user ID format in token", nil)
+		return
+	}
+
+	userIDUUID, err := uuid.Parse(userID)
+	if err != nil {
 		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
 			"Invalid user ID format in token", nil)
 		return
@@ -491,7 +450,6 @@ func (h *MessageHandler) Update(c *gin.Context) {
 	appID := req.ApplicationID
 	var checkQuery string
 	var existingUserID uuid.UUID
-	var err error
 
 	if appID == nil {
 		checkQuery = `SELECT m.user_id FROM messages m
@@ -501,7 +459,7 @@ func (h *MessageHandler) Update(c *gin.Context) {
 		checkQuery = `SELECT m.user_id FROM messages m
 		               INNER JOIN rooms r ON m.room_id = r.id
 		               WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
-		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID, appID).Scan(&existingUserID)
+		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID, *appID).Scan(&existingUserID)
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -509,12 +467,17 @@ func (h *MessageHandler) Update(c *gin.Context) {
 				"Message not found", nil)
 			return
 		}
+		logger.Error("Failed to check message existence for update", err, logger.Fields{
+			"message_id": req.ID,
+			"room_id":    req.RoomID,
+			"app_id":     appID,
+		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to check message existence", nil)
 		return
 	}
 
-	userIDUUID := uuid.MustParse(userID)
 	if existingUserID != userIDUUID {
 		errors.RespondWithError(c, http.StatusForbidden, errors.ErrCodeForbidden,
 			"You can only update your own messages", nil)
@@ -576,6 +539,12 @@ func (h *MessageHandler) Update(c *gin.Context) {
 
 	result, err := h.db.Exec(updateQuery, args...)
 	if err != nil {
+		logger.Error("Failed to update message", err, logger.Fields{
+			"message_id": req.ID,
+			"room_id":    req.RoomID,
+			"query":      updateQuery,
+		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to update message", nil)
 		return
@@ -583,6 +552,10 @@ func (h *MessageHandler) Update(c *gin.Context) {
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
+		logger.Error("Failed to get rows affected after update", err, logger.Fields{
+			"message_id": req.ID,
+		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to update message", nil)
 		return
@@ -670,6 +643,13 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	userIDUUID, err := uuid.Parse(userID)
+	if err != nil {
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid user ID format in token", nil)
+		return
+	}
+
 	var req models.MessageDeleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		details := []errors.ErrorDetail{
@@ -686,7 +666,6 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 	appID := req.ApplicationID
 	var checkQuery string
 	var existingUserID uuid.UUID
-	var err error
 
 	if appID == nil {
 		checkQuery = `SELECT m.user_id FROM messages m
@@ -696,7 +675,7 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		checkQuery = `SELECT m.user_id FROM messages m
 		               INNER JOIN rooms r ON m.room_id = r.id
 		               WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
-		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID, appID).Scan(&existingUserID)
+		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID, *appID).Scan(&existingUserID)
 	}
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -704,12 +683,17 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 				"Message not found", nil)
 			return
 		}
+		logger.Error("Failed to check message existence for deletion", err, logger.Fields{
+			"message_id": req.ID,
+			"room_id":    req.RoomID,
+			"app_id":     appID,
+		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to check message existence", nil)
 		return
 	}
 
-	userIDUUID := uuid.MustParse(userID)
 	if existingUserID != userIDUUID {
 		errors.RespondWithError(c, http.StatusForbidden, errors.ErrCodeForbidden,
 			"You can only delete your own messages", nil)
@@ -722,6 +706,11 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 
 	result, err := h.db.Exec(deleteQuery, now, now, req.ID, req.RoomID)
 	if err != nil {
+		logger.Error("Failed to delete message", err, logger.Fields{
+			"message_id": req.ID,
+			"room_id":    req.RoomID,
+		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to delete message", nil)
 		return
@@ -729,6 +718,10 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
+		logger.Error("Failed to get rows affected after deletion", err, logger.Fields{
+			"message_id": req.ID,
+		})
+		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 			"Failed to delete message", nil)
 		return

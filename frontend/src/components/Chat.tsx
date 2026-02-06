@@ -37,16 +37,18 @@ export default function Chat({ user, onLogout }: ChatProps) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingMembership, setCheckingMembership] = useState(false);
   const [showUserList, setShowUserList] = useState(false);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [fetchingUsers, setFetchingUsers] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const typingTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const typingTimeoutRef = useRef<Map<string, any>>(new Map());
   const selectedRoomRef = useRef<Room | null>(null);
   const messagesRef = useRef<Message[]>([]);
-  
+
   // Keep refs in sync with state
   useEffect(() => {
     selectedRoomRef.current = selectedRoom;
   }, [selectedRoom]);
-  
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -95,7 +97,7 @@ export default function Chat({ user, onLogout }: ChatProps) {
     if (selectedRoom && isMember) {
       console.log('User is member, loading messages and subscribing to room:', selectedRoom.id);
       loadMessages(selectedRoom.id).catch(console.error);
-      
+
       // Subscribe to room for real-time updates
       const subscribeToRoom = () => {
         if (wsClient.isConnected()) {
@@ -106,7 +108,7 @@ export default function Chat({ user, onLogout }: ChatProps) {
         }
         return false;
       };
-      
+
       // Try to subscribe immediately
       if (!subscribeToRoom()) {
         console.warn('⚠️ WebSocket not connected, will retry subscription in 1 second...');
@@ -120,12 +122,12 @@ export default function Chat({ user, onLogout }: ChatProps) {
                 clearInterval(intervalId);
               }
             }, 2000);
-            
+
             // Clean up interval after 30 seconds
             setTimeout(() => clearInterval(intervalId), 30000);
           }
         }, 1000);
-        
+
         // Cleanup timeout on unmount
         return () => clearTimeout(retryTimeout);
       }
@@ -207,21 +209,6 @@ export default function Chat({ user, onLogout }: ChatProps) {
         }
       };
 
-      const handleTyping = (payload: TypingIndicator) => {
-        const currentRoom = selectedRoomRef.current;
-        if (currentRoom && payload.room_id === currentRoom.id && payload.user_id !== user.id) {
-          setTypingUsers((prev) => new Set(prev).add(payload.user_id));
-          const timeout = setTimeout(() => {
-            setTypingUsers((prev) => {
-              const next = new Set(prev);
-              next.delete(payload.user_id);
-              return next;
-            });
-          }, 10000);
-          typingTimeoutRef.current.set(payload.user_id, timeout);
-        }
-      };
-
       const handleRoomCreated = () => {
         loadRooms().catch(console.error);
       };
@@ -295,7 +282,7 @@ export default function Chat({ user, onLogout }: ChatProps) {
       wsClient.on('message_updated', handleMessageUpdated);
       wsClient.on('reaction_added', handleReactionAdded);
       wsClient.on('reaction_removed', handleReactionRemoved);
-      wsClient.on('typing', handleTyping);
+      wsClient.on('typing', handleTypingIncoming);
       wsClient.on('room_created', handleRoomCreated);
       wsClient.on('room_updated', handleRoomUpdated);
       wsClient.on('room_member_added', handleRoomMemberAdded);
@@ -377,9 +364,27 @@ export default function Chat({ user, onLogout }: ChatProps) {
     }
   };
 
+  const loadAllUsers = async () => {
+    setFetchingUsers(true);
+    try {
+      const response = await usersAPI.list(user.application_id);
+      setAllUsers(response.users || []);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    } finally {
+      setFetchingUsers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showUserList && isAdmin) {
+      loadAllUsers();
+    }
+  }, [showUserList, isAdmin]);
+
   const handleInviteUser = async (userId: string) => {
     if (!selectedRoom) return;
-    
+
     setLoading(true);
     try {
       await roomsAPI.addMember({
@@ -408,7 +413,7 @@ export default function Chat({ user, onLogout }: ChatProps) {
 
   const handleJoinRoom = async () => {
     if (!selectedRoom) return;
-    
+
     setLoading(true);
     try {
       await roomsAPI.addMember({
@@ -430,12 +435,12 @@ export default function Chat({ user, onLogout }: ChatProps) {
 
     setLoading(true);
     try {
-      const response = await roomsAPI.create({ 
-        name, 
+      const response = await roomsAPI.create({
+        name,
         type: 'group',
         created_by: user.id
       });
-      
+
       // Automatically add creator as a member
       try {
         await roomsAPI.addMember({
@@ -447,7 +452,7 @@ export default function Chat({ user, onLogout }: ChatProps) {
         console.error('Failed to add creator as member:', memberErr);
         // Continue anyway - room was created
       }
-      
+
       await loadRooms();
       // Select the newly created room
       setSelectedRoom(response.room);
@@ -476,12 +481,62 @@ export default function Chat({ user, onLogout }: ChatProps) {
     }
   };
 
-  const handleTyping = async () => {
+  const handleTypingIncoming = (payload: TypingIndicator) => {
+    console.log('⌨️ handleTypingIncoming received:', payload);
+    const currentRoom = selectedRoomRef.current;
+    if (!currentRoom) {
+      console.log('⚠️ No room currently selected, ignoring typing event');
+      return;
+    }
+
+    console.log('📍 Current room:', currentRoom.id, 'Payload room:', payload.room_id);
+    console.log('👤 Current user:', user.id, 'Payload user:', payload.user_id);
+
+    if (payload.room_id === currentRoom.id && payload.user_id !== user.id) {
+      console.log('✅ Matches! Adding user to typing list:', payload.user_id);
+      // Clear existing timeout for this user if any
+      const existingTimeout = typingTimeoutRef.current.get(payload.user_id);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+
+      setTypingUsers((prev) => {
+        const next = new Set(prev);
+        next.add(payload.user_id);
+        return next;
+      });
+
+      const timeout = setTimeout(() => {
+        console.log('⏲️ Removing typing user after timeout:', payload.user_id);
+        setTypingUsers((prev) => {
+          const next = new Set(prev);
+          next.delete(payload.user_id);
+          return next;
+        });
+        typingTimeoutRef.current.delete(payload.user_id);
+      }, 5000);
+
+      typingTimeoutRef.current.set(payload.user_id, timeout);
+    } else {
+      console.log('❌ Does not match criteria for showing indicator');
+    }
+  };
+
+  const lastTypingSentRef = useRef<number>(0);
+  const handleTypingOutgoing = async () => {
     if (!selectedRoom) return;
+
+    const now = Date.now();
+    if (now - lastTypingSentRef.current < 3000) return;
+
+    lastTypingSentRef.current = now;
+
     try {
+      if (user.id === '00000000-0000-0000-0000-000000000000') return;
       await typingAPI.create({
         room_id: selectedRoom.id,
         user_id: user.id,
+        application_id: user.application_id,
       });
     } catch (err) {
       console.error('Failed to send typing indicator:', err);
@@ -639,9 +694,9 @@ export default function Chat({ user, onLogout }: ChatProps) {
 
               {/* Room Members List */}
               {isMember && roomMembers.length > 0 && (
-                <div style={{ 
-                  marginTop: '10px', 
-                  paddingTop: '10px', 
+                <div style={{
+                  marginTop: '10px',
+                  paddingTop: '10px',
                   borderTop: '1px solid #eee',
                   fontSize: '12px'
                 }}>
@@ -657,7 +712,7 @@ export default function Chat({ user, onLogout }: ChatProps) {
                           fontSize: '11px'
                         }}
                       >
-                        {member.user_id === user.id ? 'You' : `User ${member.user_id.slice(0, 8)}`}
+                        {member.user_id === user.id ? 'You' : (member.username || `User ${member.user_id.slice(0, 8)}`)}
                         {member.role && member.role !== 'member' && ` (${member.role})`}
                       </div>
                     ))}
@@ -677,45 +732,87 @@ export default function Chat({ user, onLogout }: ChatProps) {
                   <div style={{ fontWeight: 'bold', marginBottom: '10px', fontSize: '14px' }}>
                     Invite Users to Room
                   </div>
-                  <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-                    Note: For a full implementation, you would need a "list all users" endpoint.
-                    Currently, you can invite users by their User ID.
+                  <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                    {fetchingUsers ? (
+                      <div style={{ textAlign: 'center', padding: '10px', fontSize: '12px' }}>Loading users...</div>
+                    ) : allUsers.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        {allUsers
+                          .filter(u => !roomMembers.some(m => m.user_id === u.id))
+                          .map(u => (
+                            <div key={u.id} style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '8px',
+                              backgroundColor: 'white',
+                              borderRadius: '4px',
+                              border: '1px solid #eee'
+                            }}>
+                              <div>
+                                <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{u.username}</div>
+                                <div style={{ fontSize: '10px', color: '#999' }}>{u.id.slice(0, 8)}...</div>
+                              </div>
+                              <button
+                                onClick={() => handleInviteUser(u.id)}
+                                disabled={loading}
+                                style={{
+                                  padding: '5px 10px',
+                                  backgroundColor: '#007bff',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: loading ? 'not-allowed' : 'pointer',
+                                  fontSize: '11px'
+                                }}
+                              >
+                                Invite
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '10px', fontSize: '12px', color: '#999' }}>No other users found.</div>
+                    )}
                   </div>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <input
-                      type="text"
-                      placeholder="Enter User ID to invite"
-                      id="invite-user-id"
-                      style={{
-                        flex: 1,
-                        padding: '8px',
-                        border: '1px solid #ddd',
-                        borderRadius: '4px',
-                        fontSize: '12px'
-                      }}
-                    />
-                    <button
-                      onClick={async () => {
-                        const input = document.getElementById('invite-user-id') as HTMLInputElement;
-                        const userId = input?.value.trim();
-                        if (userId) {
-                          await handleInviteUser(userId);
-                          input.value = '';
-                        }
-                      }}
-                      disabled={loading}
-                      style={{
-                        padding: '8px 16px',
-                        backgroundColor: '#007bff',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: loading ? 'not-allowed' : 'pointer',
-                        fontSize: '12px'
-                      }}
-                    >
-                      Invite
-                    </button>
+                  <div style={{ marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #eee' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', marginBottom: '5px' }}>Invite by ID:</div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <input
+                        type="text"
+                        placeholder="Enter User ID to invite"
+                        id="invite-user-id"
+                        style={{
+                          flex: 1,
+                          padding: '8px',
+                          border: '1px solid #ddd',
+                          borderRadius: '4px',
+                          fontSize: '12px'
+                        }}
+                      />
+                      <button
+                        onClick={async () => {
+                          const input = document.getElementById('invite-user-id') as HTMLInputElement;
+                          const userId = input?.value.trim();
+                          if (userId) {
+                            await handleInviteUser(userId);
+                            input.value = '';
+                          }
+                        }}
+                        disabled={loading}
+                        style={{
+                          padding: '8px 16px',
+                          backgroundColor: '#6c757d',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: loading ? 'not-allowed' : 'pointer',
+                          fontSize: '12px'
+                        }}
+                      >
+                        Invite ID
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -764,80 +861,83 @@ export default function Chat({ user, onLogout }: ChatProps) {
               ) : Array.isArray(messages) && messages.length > 0 ? messages.map((message) => {
                 const messageReactions = reactions.get(message.id);
                 const hasReactions = messageReactions && Array.isArray(messageReactions) && messageReactions.length > 0;
-                
+
                 return (
-                <div
-                  key={message.id}
-                  style={{
-                    marginBottom: '15px',
-                    padding: '10px',
-                    backgroundColor: message.user_id === user.id ? '#007bff' : 'white',
-                    color: message.user_id === user.id ? 'white' : 'black',
-                    borderRadius: '8px',
-                    maxWidth: '70%',
-                    marginLeft: message.user_id === user.id ? 'auto' : '0',
-                    marginRight: message.user_id === user.id ? '0' : 'auto'
-                  }}
-                >
-                  <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '5px' }}>
-                    {message.user_id === user.id ? 'You' : `User ${message.user_id.slice(0, 8)}`}
-                  </div>
-                  <div>{message.content}</div>
-                  <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '5px' }}>
-                    {new Date(message.created_at).toLocaleTimeString()}
-                  </div>
-
-                  {/* Reactions */}
-                  {hasReactions && (
-                    <div style={{ marginTop: '5px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                      {messageReactions!.map((reaction) => (
-                        <button
-                          key={reaction.id}
-                          onClick={() => {
-                            if (reaction.user_id === user.id) {
-                              handleRemoveReaction(message.id, reaction.reaction);
-                            } else {
-                              handleAddReaction(message.id, reaction.reaction);
-                            }
-                          }}
-                          style={{
-                            padding: '2px 6px',
-                            backgroundColor: reaction.user_id === user.id ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.1)',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '12px'
-                          }}
-                        >
-                          {reaction.reaction} {messageReactions!.filter(r => r.reaction === reaction.reaction).length}
-                        </button>
-                      ))}
+                  <div
+                    key={message.id}
+                    style={{
+                      marginBottom: '15px',
+                      padding: '10px',
+                      backgroundColor: message.user_id === user.id ? '#007bff' : 'white',
+                      color: message.user_id === user.id ? 'white' : 'black',
+                      borderRadius: '8px',
+                      maxWidth: '70%',
+                      marginLeft: message.user_id === user.id ? 'auto' : '0',
+                      marginRight: message.user_id === user.id ? '0' : 'auto'
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '5px' }}>
+                      {(() => {
+                        const member = roomMembers.find(m => m.user_id === message.user_id);
+                        return message.user_id === user.id ? 'You' : (member?.username || `User ${message.user_id.slice(0, 8)}`);
+                      })()}
                     </div>
-                  )}
+                    <div>{message.content}</div>
+                    <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '5px' }}>
+                      {new Date(message.created_at).toLocaleTimeString()}
+                    </div>
 
-                  {/* Add Reaction Button */}
-                  <div style={{ marginTop: '5px' }}>
-                    <button
-                      onClick={() => {
-                        const reaction = prompt('Enter reaction (emoji or text, max 10 chars):');
-                        if (reaction && reaction.length <= 10) {
-                          handleAddReaction(message.id, reaction);
-                        }
-                      }}
-                      style={{
-                        padding: '2px 6px',
-                        backgroundColor: 'transparent',
-                        border: '1px solid currentColor',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '10px',
-                        opacity: 0.7
-                      }}
-                    >
-                      + React
-                    </button>
+                    {/* Reactions */}
+                    {hasReactions && (
+                      <div style={{ marginTop: '5px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                        {messageReactions!.map((reaction) => (
+                          <button
+                            key={reaction.id}
+                            onClick={() => {
+                              if (reaction.user_id === user.id) {
+                                handleRemoveReaction(message.id, reaction.reaction);
+                              } else {
+                                handleAddReaction(message.id, reaction.reaction);
+                              }
+                            }}
+                            style={{
+                              padding: '2px 6px',
+                              backgroundColor: reaction.user_id === user.id ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.1)',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '12px'
+                            }}
+                          >
+                            {reaction.reaction} {messageReactions!.filter(r => r.reaction === reaction.reaction).length}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add Reaction Button */}
+                    <div style={{ marginTop: '5px' }}>
+                      <button
+                        onClick={() => {
+                          const reaction = prompt('Enter reaction (emoji or text, max 10 chars):');
+                          if (reaction && reaction.length <= 10) {
+                            handleAddReaction(message.id, reaction);
+                          }
+                        }}
+                        style={{
+                          padding: '2px 6px',
+                          backgroundColor: 'transparent',
+                          border: '1px solid currentColor',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '10px',
+                          opacity: 0.7
+                        }}
+                      >
+                        + React
+                      </button>
+                    </div>
                   </div>
-                </div>
                 );
               }) : (
                 <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
@@ -845,19 +945,32 @@ export default function Chat({ user, onLogout }: ChatProps) {
                 </div>
               )}
 
-              {/* Typing Indicator */}
-              {typingUsers.size > 0 && (
-                <div style={{ padding: '10px', fontStyle: 'italic', color: '#666' }}>
-                  {Array.from(typingUsers).map((userId) => (
-                    <span key={userId}>
-                      {userId === user.id ? 'You' : `User ${userId.slice(0, 8)}`} is typing...
-                    </span>
-                  ))}
-                </div>
-              )}
+
 
               <div ref={messagesEndRef} />
             </div>
+
+            {/* Typing Indicator */}
+            {typingUsers.size > 0 && (
+              <div style={{
+                padding: '5px 20px',
+                fontStyle: 'italic',
+                color: '#666',
+                fontSize: '12px',
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
+                borderTop: '1px solid #eee'
+              }}>
+                {Array.from(typingUsers).map((userId, index, array) => {
+                  const member = roomMembers.find(m => m.user_id === userId);
+                  const displayName = userId === user.id ? 'You' : (member?.username || `User ${userId.slice(0, 8)}`);
+
+                  if (index === 0) return displayName;
+                  if (index === array.length - 1) return ` and ${displayName}`;
+                  return `, ${displayName}`;
+                })}
+                {typingUsers.size === 1 ? ' is typing...' : ' are typing...'}
+              </div>
+            )}
 
             {/* Message Input */}
             {isMember && (
@@ -873,7 +986,7 @@ export default function Chat({ user, onLogout }: ChatProps) {
                   value={messageContent}
                   onChange={(e) => {
                     setMessageContent(e.target.value);
-                    handleTyping();
+                    handleTypingOutgoing();
                   }}
                   placeholder="Type a message..."
                   style={{

@@ -41,8 +41,8 @@ type UserUpdateRequest struct {
 }
 
 type UserGetRequest struct {
-	ID            *uuid.UUID `json:"id,omitempty"`
-	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
+	ID            *string `json:"id,omitempty" form:"id"`
+	ApplicationID *string `json:"application_id,omitempty" form:"application_id"`
 }
 
 type UserDeleteRequest struct {
