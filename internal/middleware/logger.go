@@ -1,23 +1,30 @@
 package middleware
 
 import (
-	"log"
 	"time"
+
+	"chat-app/internal/utils/logger"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Logger middleware logs HTTP requests
 func Logger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery
 
-		// Process request
+		// Store request ID in context for tracing
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = c.GetHeader("X-Request-Id")
+		}
+		if requestID != "" {
+			c.Set("requestId", requestID)
+		}
+
 		c.Next()
 
-		// Log request details
 		latency := time.Since(start)
 		clientIP := c.ClientIP()
 		method := c.Request.Method
@@ -27,15 +34,21 @@ func Logger() gin.HandlerFunc {
 			path = path + "?" + raw
 		}
 
-		log.Printf(
-			"[%s] %s %s %d %v %s",
-			method,
-			path,
-			clientIP,
-			statusCode,
-			latency,
-			c.Errors.String(),
-		)
+		fields := logger.Fields{
+			"request_id": requestID,
+			"user_agent": c.Request.UserAgent(),
+		}
+
+		// Add user ID if available
+		if userID, exists := c.Get("user_id"); exists {
+			fields["user_id"] = userID
+		}
+
+		// Add error details if any
+		if len(c.Errors) > 0 {
+			fields["errors"] = c.Errors.String()
+		}
+
+		logger.LogRequest(method, path, clientIP, statusCode, latency, fields)
 	}
 }
-

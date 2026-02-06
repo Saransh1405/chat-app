@@ -10,6 +10,7 @@ import (
 
 	"chat-app/internal/database"
 	"chat-app/internal/models"
+	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/helperfunctions"
 	"chat-app/internal/utils/validator"
 
@@ -26,83 +27,78 @@ func NewUserHandler(db *database.DB) *UserHandler {
 }
 
 func (h *UserHandler) Create(c *gin.Context) {
-	// Get application ID from path
-	appID := c.Param("app_id")
-
-	// Get user data from request body
-	user := models.User{}
-	err := c.ShouldBindBodyWithJSON(&user)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+	var req models.UserCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
-	if !validator.ValidateUUID(appID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid application ID",
-			},
-		})
-		return
+	appIDUUIDString := ""
+	if req.ApplicationID != nil {
+		appIDUUIDString = req.ApplicationID.String()
 	}
-	user.ApplicationID = uuid.MustParse(appID)
 
-	// validate user data
+	user := models.User{
+		Username:   req.Username,
+		Email:      req.Email,
+		AvatarURL:  req.AvatarURL,
+		ExternalID: req.ExternalID,
+		Metadata:   req.Metadata,
+	}
+
+	if req.ApplicationID != nil {
+		user.ApplicationID = *req.ApplicationID
+	}
+
 	if !validator.ValidateEmail(*user.Email) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid email",
+		details := []errors.ErrorDetail{
+			{
+				Field: "email",
+				Issue: "Invalid email format",
+				Value: *user.Email,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid email", details)
 		return
 	}
 
 	if !validator.ValidateLength(user.Username, 3, 255) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid username",
+		details := []errors.ErrorDetail{
+			{
+				Field: "username",
+				Issue: "Username must be between 3 and 255 characters",
+				Value: user.Username,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid username", details)
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithEmail(&user, appID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "USER_ALREADY_EXISTS",
-				"message": "User already exists",
-			},
-		})
+	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &user, appIDUUIDString); err == nil {
+		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
+			"User with this email already exists", nil)
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithUsername(&user, appID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "USER_ALREADY_EXISTS",
-				"message": "User already exists",
-			},
-		})
+	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &user, appIDUUIDString); err == nil {
+		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
+			"User with this username already exists", nil)
 		return
 	}
 
-	// Create user
-	err = helperfunctions.CreateUser(&user, appID)
+	err := helperfunctions.CreateUser(c, h.db, &user, appIDUUIDString)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to create user",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to create user", nil)
 		return
 	}
 
@@ -113,69 +109,74 @@ func (h *UserHandler) Create(c *gin.Context) {
 }
 
 func (h *UserHandler) DirectCreate(c *gin.Context) {
-	// Get user data from request body
-	user := models.User{}
-	err := c.ShouldBindBodyWithJSON(&user)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
+	var req models.UserCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
-	// validate user data
+	user := models.User{
+		Username:   req.Username,
+		Email:      req.Email,
+		AvatarURL:  req.AvatarURL,
+		ExternalID: req.ExternalID,
+		Metadata:   req.Metadata,
+	}
+
 	if !validator.ValidateEmail(*user.Email) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid email",
+		details := []errors.ErrorDetail{
+			{
+				Field: "email",
+				Issue: "Invalid email format",
+				Value: *user.Email,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid email", details)
 		return
 	}
 
 	if !validator.ValidateLength(user.Username, 3, 255) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid username",
+		details := []errors.ErrorDetail{
+			{
+				Field: "username",
+				Issue: "Username must be between 3 and 255 characters",
+				Value: user.Username,
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid username", details)
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithEmail(&user, ""); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "USER_ALREADY_EXISTS",
-				"message": "User already exists",
-			},
-		})
+	appIDUUIDString := ""
+	if req.ApplicationID != nil {
+		appIDUUIDString = req.ApplicationID.String()
+	}
+
+	if err := helperfunctions.CheckIfUserExistsWithEmail(c, h.db, &user, appIDUUIDString); err == nil {
+		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
+			"User with this email already exists", nil)
 		return
 	}
 
-	if err := helperfunctions.CheckIfUserExistsWithUsername(&user, ""); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "USER_ALREADY_EXISTS",
-				"message": "User already exists",
-			},
-		})
+	if err := helperfunctions.CheckIfUserExistsWithUsername(c, h.db, &user, appIDUUIDString); err == nil {
+		errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
+			"User with this username already exists", nil)
 		return
 	}
 
-	// Create user
-	err = helperfunctions.CreateUser(&user, "")
+	err := helperfunctions.CreateUser(c, h.db, &user, appIDUUIDString)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to create user",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to create user", nil)
 		return
 	}
 
@@ -186,65 +187,40 @@ func (h *UserHandler) DirectCreate(c *gin.Context) {
 }
 
 func (h *UserHandler) Get(c *gin.Context) {
-	// Get user ID from query parameter or path parameter
-	userID := c.Param("id")
+	userID := c.Query("id")
+	appID := c.Query("application_id")
 
 	var query string
 	var args []interface{}
 
-	// Validate UUID format
-	if !validator.ValidateUUID(userID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid user ID format",
-			},
-		})
+	if userID != "" {
+		userIDUUID, err := uuid.Parse(userID)
+		if err != nil {
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid user ID format", nil)
+			return
+		}
+		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
+		         FROM users 
+		         WHERE id = $1 AND deleted_at IS NULL`
+		args = []interface{}{userIDUUID}
+	} else if appID != "" {
+		appIDUUID, err := uuid.Parse(appID)
+		if err != nil {
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application ID format", nil)
+			return
+		}
+		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
+		         FROM users 
+		         WHERE application_id = $1 AND deleted_at IS NULL`
+		args = []interface{}{appIDUUID}
+	} else {
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Either user ID or application ID is required", nil)
 		return
 	}
 
-	// Get application ID from path if available (for application-scoped routes)
-	appID := c.Param("app_id")
-
-	if appID != "" {
-		// Application-scoped query
-		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID",
-				},
-			})
-			return
-		}
-		if userID != "" {
-			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
-		         FROM users 
-		         WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-			args = []interface{}{userID, appID}
-		} else {
-			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
-		         FROM users 
-		         WHERE application_id = $1 AND deleted_at IS NULL`
-			args = []interface{}{appID}
-		}
-	} else {
-		if userID != "" {
-			// Direct query (no application scope)
-			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
-		         FROM users 
-		         WHERE id = $1 AND deleted_at IS NULL`
-			args = []interface{}{userID}
-		} else {
-			// Direct query (no application scope)
-			query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
-			         FROM users 
-			         WHERE deleted_at IS NULL`
-			args = []interface{}{}
-		}
-	}
-
-	// Query user from database
 	user := models.User{}
 	var metadataJSON []byte
 	err := h.db.QueryRow(query, args...).Scan(
@@ -262,32 +238,19 @@ func (h *UserHandler) Get(c *gin.Context) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "USER_NOT_FOUND",
-					"message": "User not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"User not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to retrieve user",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve user", nil)
 		return
 	}
 
-	// Parse metadata JSON if present
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &user.Metadata); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to parse user metadata",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeInternalError,
+				"Failed to parse user metadata", nil)
 			return
 		}
 	}
@@ -298,179 +261,133 @@ func (h *UserHandler) Get(c *gin.Context) {
 }
 
 func (h *UserHandler) Update(c *gin.Context) {
-	// Get user ID from path parameter
-	userID := c.Param("id")
-	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "User ID is required",
+	var req models.UserUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
-	// Validate UUID format
-	if !validator.ValidateUUID(userID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid user ID format",
-			},
-		})
-		return
+	userIDUUID := req.ID
+	var appIDUUID *uuid.UUID
+	if req.ApplicationID != nil {
+		appIDUUID = req.ApplicationID
 	}
 
-	// Get application ID from path if available (for application-scoped routes)
-	appID := c.Param("app_id")
-
-	// Get user data from request body
-	var updateData models.User
-	err := c.ShouldBindBodyWithJSON(&updateData)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid request body",
-			},
-		})
-		return
+	updateData := models.User{
+		Username:  req.Username,
+		Email:     req.Email,
+		AvatarURL: req.AvatarURL,
+		Metadata:  req.Metadata,
 	}
 
-	// Validate email if provided
 	if updateData.Email != nil && *updateData.Email != "" {
 		if !validator.ValidateEmail(*updateData.Email) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid email",
+			details := []errors.ErrorDetail{
+				{
+					Field: "email",
+					Issue: "Invalid email format",
+					Value: *updateData.Email,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid email", details)
 			return
 		}
 	}
 
-	// Validate username if provided
 	if updateData.Username != "" {
 		if !validator.ValidateLength(updateData.Username, 3, 255) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid username",
+			details := []errors.ErrorDetail{
+				{
+					Field: "username",
+					Issue: "Username must be between 3 and 255 characters",
+					Value: updateData.Username,
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid username", details)
 			return
 		}
 	}
 
-	// Check if user exists
 	var checkQuery string
 	var checkArgs []interface{}
-	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID",
-				},
-			})
-			return
-		}
+	if appIDUUID != nil {
 		checkQuery = `SELECT id FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkArgs = []interface{}{userID, appID}
+		checkArgs = []interface{}{userIDUUID, *appIDUUID}
 	} else {
 		checkQuery = `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL`
-		checkArgs = []interface{}{userID}
+		checkArgs = []interface{}{userIDUUID}
 	}
 
 	var existingID uuid.UUID
-	err = h.db.QueryRow(checkQuery, checkArgs...).Scan(&existingID)
+	err := h.db.QueryRow(checkQuery, checkArgs...).Scan(&existingID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "USER_NOT_FOUND",
-					"message": "User not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"User not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check user existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check user existence", nil)
 		return
 	}
 
-	// Check for duplicate email if email is being updated
 	if updateData.Email != nil && *updateData.Email != "" {
 		var emailCheckQuery string
 		var emailCheckArgs []interface{}
-		if appID != "" {
+		if appIDUUID != nil {
 			emailCheckQuery = `SELECT id FROM users WHERE email = $1 AND application_id = $2 AND id != $3 AND deleted_at IS NULL`
-			emailCheckArgs = []interface{}{*updateData.Email, appID, userID}
+			emailCheckArgs = []interface{}{*updateData.Email, *appIDUUID, userIDUUID}
 		} else {
 			emailCheckQuery = `SELECT id FROM users WHERE email = $1 AND id != $2 AND deleted_at IS NULL`
-			emailCheckArgs = []interface{}{*updateData.Email, userID}
+			emailCheckArgs = []interface{}{*updateData.Email, userIDUUID}
 		}
 
 		var duplicateID uuid.UUID
 		err = h.db.QueryRow(emailCheckQuery, emailCheckArgs...).Scan(&duplicateID)
 		if err == nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "USER_ALREADY_EXISTS",
-					"message": "User with this email already exists",
-				},
-			})
+			errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
+				"User with this email already exists", nil)
 			return
 		} else if err != sql.ErrNoRows {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to check email uniqueness",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to check email uniqueness", nil)
 			return
 		}
 	}
 
-	// Check for duplicate username if username is being updated
 	if updateData.Username != "" {
 		var usernameCheckQuery string
 		var usernameCheckArgs []interface{}
-		if appID != "" {
+		if appIDUUID != nil {
 			usernameCheckQuery = `SELECT id FROM users WHERE username = $1 AND application_id = $2 AND id != $3 AND deleted_at IS NULL`
-			usernameCheckArgs = []interface{}{updateData.Username, appID, userID}
+			usernameCheckArgs = []interface{}{updateData.Username, *appIDUUID, userIDUUID}
 		} else {
 			usernameCheckQuery = `SELECT id FROM users WHERE username = $1 AND id != $2 AND deleted_at IS NULL`
-			usernameCheckArgs = []interface{}{updateData.Username, userID}
+			usernameCheckArgs = []interface{}{updateData.Username, userIDUUID}
 		}
 
 		var duplicateID uuid.UUID
 		err = h.db.QueryRow(usernameCheckQuery, usernameCheckArgs...).Scan(&duplicateID)
 		if err == nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "USER_ALREADY_EXISTS",
-					"message": "User with this username already exists",
-				},
-			})
+			errors.RespondWithError(c, http.StatusConflict, errors.ErrCodeConflict,
+				"User with this username already exists", nil)
 			return
 		} else if err != sql.ErrNoRows {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": gin.H{
-					"code":    "INTERNAL_SERVER_ERROR",
-					"message": "Failed to check username uniqueness",
-				},
-			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to check username uniqueness", nil)
 			return
 		}
 	}
 
-	// Build update query dynamically based on provided fields
 	updateFields := []string{}
 	args := []interface{}{}
 	argIndex := 1
@@ -496,12 +413,14 @@ func (h *UserHandler) Update(c *gin.Context) {
 	if updateData.Metadata != nil {
 		metadataJSON, err := json.Marshal(updateData.Metadata)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid metadata format",
+			details := []errors.ErrorDetail{
+				{
+					Field: "metadata",
+					Issue: "Invalid JSON format",
 				},
-			})
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid metadata format", details)
 			return
 		}
 		updateFields = append(updateFields, fmt.Sprintf("metadata = $%d", argIndex))
@@ -510,83 +429,62 @@ func (h *UserHandler) Update(c *gin.Context) {
 	}
 
 	if len(updateFields) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "No fields to update",
-			},
-		})
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"No fields to update", nil)
 		return
 	}
 
-	// Add updated_at
 	updateFields = append(updateFields, fmt.Sprintf("updated_at = $%d", argIndex))
 	args = append(args, time.Now())
 	argIndex++
 
-	// Build WHERE clause
 	var whereClause string
-	if appID != "" {
+	if appIDUUID != nil {
 		whereClause = fmt.Sprintf("WHERE id = $%d AND application_id = $%d AND deleted_at IS NULL", argIndex, argIndex+1)
-		args = append(args, userID, appID)
+		args = append(args, userIDUUID, *appIDUUID)
 	} else {
 		whereClause = fmt.Sprintf("WHERE id = $%d AND deleted_at IS NULL", argIndex)
-		args = append(args, userID)
+		args = append(args, userIDUUID)
 	}
 
-	// Build final query
 	updateQuery := fmt.Sprintf("UPDATE users SET %s %s", strings.Join(updateFields, ", "), whereClause)
 
-	// Execute update
 	result, err := h.db.Exec(updateQuery, args...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to update user",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to update user", nil)
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to update user",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to update user", nil)
 		return
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"code":    "USER_NOT_FOUND",
-				"message": "User not found",
-			},
-		})
+		errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+			"User not found", nil)
 		return
 	}
 
-	// Fetch updated user to return
 	var fetchQuery string
 	var fetchArgs []interface{}
-	if appID != "" {
+	if appIDUUID != nil {
 		fetchQuery = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 		              FROM users 
 		              WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		fetchArgs = []interface{}{userID, appID}
+		fetchArgs = []interface{}{userIDUUID, *appIDUUID}
 	} else {
 		fetchQuery = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
 		              FROM users 
 		              WHERE id = $1 AND deleted_at IS NULL`
-		fetchArgs = []interface{}{userID}
+		fetchArgs = []interface{}{userIDUUID}
 	}
 
 	updatedUser := models.User{}
-	var metadataJSON []byte
+	var metadataJSONScan []byte
 	err = h.db.QueryRow(fetchQuery, fetchArgs...).Scan(
 		&updatedUser.ID,
 		&updatedUser.ApplicationID,
@@ -594,24 +492,21 @@ func (h *UserHandler) Update(c *gin.Context) {
 		&updatedUser.Username,
 		&updatedUser.Email,
 		&updatedUser.AvatarURL,
-		&metadataJSON,
+		&metadataJSONScan,
 		&updatedUser.CreatedAt,
 		&updatedUser.UpdatedAt,
 		&updatedUser.DeletedAt,
 	)
 
 	if err != nil {
-		// If we can't fetch the updated user, still return success but without user data
 		c.JSON(http.StatusOK, gin.H{
 			"message": "User updated successfully",
 		})
 		return
 	}
 
-	// Parse metadata JSON if present
-	if len(metadataJSON) > 0 {
-		if err := json.Unmarshal(metadataJSON, &updatedUser.Metadata); err != nil {
-			// Metadata parsing error, but user was updated successfully
+	if len(metadataJSONScan) > 0 {
+		if err := json.Unmarshal(metadataJSONScan, &updatedUser.Metadata); err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"message": "User updated successfully",
 				"user":    updatedUser,
@@ -627,119 +522,174 @@ func (h *UserHandler) Update(c *gin.Context) {
 }
 
 func (h *UserHandler) Delete(c *gin.Context) {
-	// Get user ID from path parameter
-	userID := c.Param("id")
-	if userID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "User ID is required",
+	var req models.UserDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		details := []errors.ErrorDetail{
+			{
+				Field: "request_body",
+				Issue: "Invalid JSON format or missing required fields",
 			},
-		})
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid request body", details)
 		return
 	}
 
-	// Validate UUID format
-	if !validator.ValidateUUID(userID) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"code":    "BAD_REQUEST",
-				"message": "Invalid user ID format",
-			},
-		})
-		return
+	userIDUUID := req.ID
+	var appIDUUID *uuid.UUID
+	if req.ApplicationID != nil {
+		appIDUUID = req.ApplicationID
 	}
 
-	// Get application ID from path if available (for application-scoped routes)
-	appID := c.Param("app_id")
-
-	// Check if user exists before soft delete
 	var checkQuery string
 	var checkArgs []interface{}
-	if appID != "" {
-		if !validator.ValidateUUID(appID) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"code":    "BAD_REQUEST",
-					"message": "Invalid application ID",
-				},
-			})
-			return
-		}
+	if appIDUUID != nil {
 		checkQuery = `SELECT id FROM users WHERE id = $1 AND application_id = $2 AND deleted_at IS NULL`
-		checkArgs = []interface{}{userID, appID}
+		checkArgs = []interface{}{userIDUUID, *appIDUUID}
 	} else {
 		checkQuery = `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL`
-		checkArgs = []interface{}{userID}
+		checkArgs = []interface{}{userIDUUID}
 	}
 
 	var existingID uuid.UUID
 	err := h.db.QueryRow(checkQuery, checkArgs...).Scan(&existingID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": gin.H{
-					"code":    "USER_NOT_FOUND",
-					"message": "User not found",
-				},
-			})
+			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+				"User not found", nil)
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to check user existence",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to check user existence", nil)
 		return
 	}
 
-	// Perform soft delete (set deleted_at timestamp)
 	var deleteQuery string
 	var deleteArgs []interface{}
 	now := time.Now()
 
-	if appID != "" {
+	if appIDUUID != nil {
 		deleteQuery = `UPDATE users SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND application_id = $4 AND deleted_at IS NULL`
-		deleteArgs = []interface{}{now, now, userID, appID}
+		deleteArgs = []interface{}{now, now, userIDUUID, *appIDUUID}
 	} else {
 		deleteQuery = `UPDATE users SET deleted_at = $1, updated_at = $2 WHERE id = $3 AND deleted_at IS NULL`
-		deleteArgs = []interface{}{now, now, userID}
+		deleteArgs = []interface{}{now, now, userIDUUID}
 	}
 
 	result, err := h.db.Exec(deleteQuery, deleteArgs...)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to delete user",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to delete user", nil)
 		return
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"code":    "INTERNAL_SERVER_ERROR",
-				"message": "Failed to delete user",
-			},
-		})
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to delete user", nil)
 		return
 	}
 
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{
-			"error": gin.H{
-				"code":    "USER_NOT_FOUND",
-				"message": "User not found",
-			},
-		})
+		errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
+			"User not found", nil)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "User deleted successfully",
+	})
+}
+
+func (h *UserHandler) GetUsers(c *gin.Context) {
+	var req models.UserGetRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		details := []errors.ErrorDetail{
+			{
+				Field: "query_params",
+				Issue: "Invalid query parameters",
+			},
+		}
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Invalid query parameters", details)
+		return
+	}
+
+	var appID uuid.UUID
+	if req.ApplicationID != nil && *req.ApplicationID != "" {
+		appID, err := uuid.Parse(*req.ApplicationID)
+		if err != nil {
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Invalid application_id format", nil)
+			return
+		}
+
+		if appID == uuid.Nil {
+			appID = uuid.Nil
+		}
+	}
+
+	var query string
+	var args []interface{}
+	if appID != uuid.Nil {
+		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
+		          FROM users 
+		          WHERE application_id = $1 AND deleted_at IS NULL`
+		args = []interface{}{appID}
+	} else {
+		query = `SELECT id, application_id, external_id, username, email, avatar_url, metadata, created_at, updated_at, deleted_at 
+		          FROM users 
+		          WHERE deleted_at IS NULL`
+		args = []interface{}{}
+	}
+
+	fmt.Println(query)
+	fmt.Println(args)
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve users", nil)
+		return
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var user models.User
+		var appID *uuid.UUID // Use pointer for nullable application_id
+		err := rows.Scan(
+			&user.ID,
+			&appID,
+			&user.ExternalID,
+			&user.Username,
+			&user.Email,
+			&user.AvatarURL,
+			&user.Metadata,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+			&user.DeletedAt,
+		)
+		if err != nil {
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Failed to retrieve users", nil)
+			return
+		}
+
+		if appID != nil {
+			user.ApplicationID = *appID
+		}
+
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+			"Failed to retrieve users", nil)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"users": users,
 	})
 }

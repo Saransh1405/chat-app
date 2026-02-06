@@ -10,16 +10,16 @@ import (
 type Claims struct {
 	UserID         string `json:"user_id"`
 	AppID          string `json:"app_id"`
-	ExternalUserID string `json:"external_user_id"`
+	RoomID         string `json:"room_id"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken generates a new JWT token
-func GenerateToken(userID, appID, externalUserID, secret string, expiry time.Duration) (string, error) {
+func GenerateToken(userID, appID, roomID, secret string, expiry time.Duration) (string, error) {
 	claims := &Claims{
 		UserID:         userID,
 		AppID:          appID,
-		ExternalUserID: externalUserID,
+		RoomID:         roomID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

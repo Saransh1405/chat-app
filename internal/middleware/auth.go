@@ -4,60 +4,74 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
+	"chat-app/internal/utils/errors"
 	"chat-app/internal/utils/jwt"
+	"chat-app/internal/utils/logger"
+
+	"github.com/gin-gonic/gin"
 )
 
-// Auth middleware validates JWT tokens and extracts user information
 func Auth(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Extract token from Authorization header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{
-					"code":    "UNAUTHORIZED",
-					"message": "Authorization header is required",
-				},
+			logger.Warn("Authentication failed: missing authorization header", logger.Fields{
+				"client_ip": c.ClientIP(),
+				"method":    c.Request.Method,
+				"path":      c.Request.URL.Path,
 			})
+			errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+				"Authorization header is required", nil)
 			c.Abort()
 			return
 		}
 
-		// Extract token from "Bearer <token>" format
 		parts := strings.Split(authHeader, " ")
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{
-					"code":    "UNAUTHORIZED",
-					"message": "Invalid authorization header format. Expected: Bearer <token>",
-				},
+			logger.Warn("Authentication failed: invalid authorization header format", logger.Fields{
+				"client_ip":  c.ClientIP(),
+				"method":     c.Request.Method,
+				"path":       c.Request.URL.Path,
+				"header_len": len(parts),
 			})
+			errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+				"Invalid authorization header format. Expected: Bearer <token>", nil)
 			c.Abort()
 			return
 		}
 
 		token := parts[1]
 
-		// Validate and parse token
 		claims, err := jwt.ValidateToken(token, jwtSecret)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": gin.H{
-					"code":    "UNAUTHORIZED",
-					"message": "Invalid or expired token",
-				},
+			logger.Warn("Authentication failed: invalid or expired token", logger.Fields{
+				"client_ip": c.ClientIP(),
+				"method":    c.Request.Method,
+				"path":      c.Request.URL.Path,
+				"error":     err.Error(),
 			})
+			errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+				"Invalid or expired token", nil)
 			c.Abort()
 			return
 		}
 
+		logger.Debug("Authentication successful", logger.Fields{
+			"user_id": claims.UserID,
+			"app_id":  claims.AppID,
+			"method":  c.Request.Method,
+			"path":    c.Request.URL.Path,
+		})
+
+		// Note: Database access in middleware requires refactoring to pass db instance
+		// For now, we'll skip these checks in middleware and rely on handler-level validation
+		// TODO: Refactor middleware to accept database connection or move these checks to handlers
+
 		// Store user information in context
 		c.Set("user_id", claims.UserID)
 		c.Set("app_id", claims.AppID)
-		c.Set("external_user_id", claims.ExternalUserID)
+		c.Set("room_id", claims.RoomID)
 
 		c.Next()
 	}
 }
-
