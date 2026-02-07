@@ -34,6 +34,7 @@ var upgrader = websocket.Upgrader{
 			"http://localhost:5173",
 			"http://127.0.0.1:3000",
 			"http://127.0.0.1:5173",
+			"https://chat-app-86bs.vercel.app",
 		}
 		for _, pattern := range allowedPatterns {
 			if origin == pattern {
