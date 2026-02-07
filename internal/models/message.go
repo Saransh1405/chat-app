@@ -25,6 +25,7 @@ type Message struct {
 	EditedAt    *time.Time  `json:"edited_at,omitempty" db:"edited_at"`
 	DeletedAt   *time.Time  `json:"deleted_at,omitempty" db:"deleted_at"`
 	Metadata    JSONB       `json:"metadata,omitempty" db:"metadata"`
+	User        *User       `json:"user,omitempty"`
 	CreatedAt   time.Time   `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time   `json:"updated_at" db:"updated_at"`
 }
@@ -43,4 +44,3 @@ type MessageRead struct {
 	UserID    uuid.UUID `json:"user_id" db:"user_id"`
 	ReadAt    time.Time `json:"read_at" db:"read_at"`
 }
-

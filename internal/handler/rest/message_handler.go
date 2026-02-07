@@ -127,6 +127,12 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Fetch user info to populate message.User
+	user, err := helperfunctions.GetUserById(c, h.db, userID)
+	if err == nil {
+		message.User = user
+	}
+
 	logger.Info("Message created successfully", logger.Fields{
 		"message_id":  message.ID.String(),
 		"user_id":     userID,
@@ -314,9 +320,11 @@ func (h *MessageHandler) List(c *gin.Context) {
 			return
 		}
 		query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
-		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
+		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at,
+		         u.username, u.avatar_url
 		         FROM messages m
 		         INNER JOIN rooms r ON m.room_id = r.id
+		         INNER JOIN users u ON m.user_id = u.id
 		         WHERE m.room_id = $1 AND r.application_id = $2 AND m.deleted_at IS NULL
 		         ORDER BY m.created_at DESC
 		         LIMIT $3 OFFSET $4`
@@ -324,8 +332,10 @@ func (h *MessageHandler) List(c *gin.Context) {
 		rows, err = h.db.Query(query, roomIDUUID, appIDUUID, limit, offset)
 	} else {
 		query := `SELECT m.id, m.room_id, m.user_id, m.content, m.message_type, m.reply_to, 
-		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at
+		         m.edited_at, m.deleted_at, m.metadata, m.created_at, m.updated_at,
+		         u.username, u.avatar_url
 		         FROM messages m
+		         INNER JOIN users u ON m.user_id = u.id
 		         WHERE m.room_id = $1 AND m.deleted_at IS NULL
 		         ORDER BY m.created_at DESC
 		         LIMIT $2 OFFSET $3`
@@ -352,6 +362,8 @@ func (h *MessageHandler) List(c *gin.Context) {
 		var metadataJSON []byte
 		var replyToUUID *uuid.UUID
 
+		var username string
+		var avatarURL *string
 		err := rows.Scan(
 			&message.ID,
 			&message.RoomID,
@@ -364,11 +376,19 @@ func (h *MessageHandler) List(c *gin.Context) {
 			&metadataJSON,
 			&message.CreatedAt,
 			&message.UpdatedAt,
+			&username,
+			&avatarURL,
 		)
 		if err != nil {
 			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
 				"Failed to parse message", nil)
 			return
+		}
+
+		message.User = &models.User{
+			ID:        message.UserID,
+			Username:  username,
+			AvatarURL: avatarURL,
 		}
 
 		message.ReplyTo = replyToUUID

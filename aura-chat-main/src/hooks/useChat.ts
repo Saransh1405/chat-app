@@ -1,0 +1,233 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { Room, Message, TypingUser } from "@/types/chat";
+import { roomsAPI } from "@/services/roomsAPI";
+import { messagesAPI } from "@/services/messagesAPI";
+import { wsClient } from "@/services/wsClient";
+import { useAuth } from "@/contexts/AuthContext";
+
+export function useChat() {
+  const { user } = useAuth();
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
+  const [isLoadingRooms, setIsLoadingRooms] = useState(true);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load rooms
+  useEffect(() => {
+    roomsAPI.list().then((data) => {
+      setRooms(data);
+      if (data.length > 0 && !activeRoomId) {
+        setActiveRoomId(data[0].id);
+      }
+      setIsLoadingRooms(false);
+    });
+  }, []);
+
+  // Load messages when active room changes
+  useEffect(() => {
+    if (!activeRoomId) return;
+    setIsLoadingMessages(true);
+    setTypingUsers([]);
+    messagesAPI.list(activeRoomId).then((data) => {
+      setMessages(data);
+      setIsLoadingMessages(false);
+    });
+  }, [activeRoomId]);
+
+  // WebSocket listeners
+  useEffect(() => {
+    if (!activeRoomId) return;
+
+    console.log("[useChat] Setting up WebSocket listeners for room:", activeRoomId);
+
+    // Subscribe to room
+    wsClient.send("subscribe", {}, activeRoomId);
+
+    const unsubMessage = wsClient.on("message", (payload: any) => {
+      console.log("[useChat] Received message event:", payload);
+      // My backend returns the message directly or in payload.
+      // Based on previous work, payload IS the message.
+      if (payload.room_id === activeRoomId) {
+        console.log("[useChat] Message belongs to active room, adding to state");
+        setMessages((prev) => {
+          if (prev.some(m => m.id === payload.id)) {
+            console.log("[useChat] Message already exists, skipping");
+            return prev;
+          }
+          console.log("[useChat] Adding new message to state");
+          return [...prev, payload];
+        });
+      } else {
+        console.log("[useChat] Message belongs to different room:", payload.room_id);
+      }
+    });
+
+    const unsubTyping = wsClient.on("typing", (payload: any) => {
+      console.log("[useChat] Received typing event:", payload);
+      if (payload.room_id === activeRoomId && payload.user_id !== user?.id) {
+        setTypingUsers((prev) => {
+          if (prev.find((t) => t.user_id === payload.user_id)) return prev;
+          return [...prev, { user_id: payload.user_id, username: payload.username }];
+        });
+        // Remove after 3s
+        setTimeout(() => {
+          setTypingUsers((prev) => prev.filter((t) => t.user_id !== payload.user_id));
+        }, 3000);
+      }
+    });
+
+    const unsubReactionAdded = wsClient.on("reaction_added", (payload: any) => {
+      console.log("[useChat] Received reaction_added event:", payload);
+      console.log("[useChat] Current activeRoomId:", activeRoomId);
+      console.log("[useChat] Current messages count:", messages.length);
+
+      // payload contains: { id, message_id, user_id, reaction, created_at }
+      setMessages((prev) => {
+        console.log("[useChat] Updating messages for reaction_added, prev count:", prev.length);
+        const updated = prev.map((msg) => {
+          if (msg.id !== payload.message_id) return msg;
+
+          console.log("[useChat] Found message to update:", msg.id);
+          const reactions = msg.reactions || [];
+          console.log("[useChat] Current reactions:", reactions);
+          const existingReaction = reactions.find((r) => r.emoji === payload.reaction);
+
+          if (existingReaction) {
+            // Add user to existing reaction
+            if (!existingReaction.users.includes(payload.user_id)) {
+              console.log("[useChat] Adding user to existing reaction");
+              return {
+                ...msg,
+                reactions: reactions.map((r) =>
+                  r.emoji === payload.reaction
+                    ? { ...r, count: r.count + 1, users: [...r.users, payload.user_id] }
+                    : r
+                ),
+              };
+            } else {
+              console.log("[useChat] User already has this reaction");
+            }
+          } else {
+            // Create new reaction
+            console.log("[useChat] Creating new reaction");
+            return {
+              ...msg,
+              reactions: [
+                ...reactions,
+                { emoji: payload.reaction, count: 1, users: [payload.user_id] },
+              ],
+            };
+          }
+          return msg;
+        });
+        console.log("[useChat] Updated messages count:", updated.length);
+        return updated;
+      });
+    });
+
+    const unsubReactionRemoved = wsClient.on("reaction_removed", (payload: any) => {
+      console.log("[useChat] Received reaction_removed event:", payload);
+      // payload contains: { message_id, user_id, reaction }
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== payload.message_id) return msg;
+
+          const reactions = msg.reactions || [];
+          return {
+            ...msg,
+            reactions: reactions
+              .map((r) =>
+                r.emoji === payload.reaction
+                  ? { ...r, count: r.count - 1, users: r.users.filter((u) => u !== payload.user_id) }
+                  : r
+              )
+              .filter((r) => r.count > 0),
+          };
+        })
+      );
+    });
+
+    return () => {
+      console.log("[useChat] Cleaning up WebSocket listeners for room:", activeRoomId);
+      wsClient.send("unsubscribe", {}, activeRoomId);
+      unsubMessage();
+      unsubTyping();
+      unsubReactionAdded();
+      unsubReactionRemoved();
+    };
+  }, [activeRoomId, user?.id]);
+
+  const sendMessage = useCallback(
+    async (content: string, imageUrl?: string) => {
+      if (!activeRoomId) return;
+      // Backend broadcasts the message, so we don't need to send it via WS manually.
+      // We might want to add it to local state immediately for better UX (optimistic update),
+      // but the WS event will also trigger an update.
+      await messagesAPI.send(activeRoomId, content, imageUrl);
+      // Let the WebSocket event update the message list to ensure consistency
+    },
+    [activeRoomId]
+  );
+
+  const sendTyping = useCallback(() => {
+    if (!activeRoomId || !user) return;
+
+    // Throttle typing events to max once per second
+    if (typingTimeoutRef.current) return;
+
+    console.log("[useChat] Sending typing indicator");
+
+    // Send typing indicator via REST API
+    fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8080/api/v1"}/typing`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${localStorage.getItem("access_token")}`,
+      },
+      body: JSON.stringify({
+        room_id: activeRoomId,
+        user_id: user.id,
+      }),
+    }).catch(err => console.error("[useChat] Failed to send typing indicator:", err));
+
+    // Throttle for 1 second
+    typingTimeoutRef.current = setTimeout(() => {
+      typingTimeoutRef.current = null;
+    }, 1000);
+  }, [activeRoomId, user]);
+
+  const addReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      console.log("[useChat] Adding reaction:", { messageId, emoji });
+      // Just call the API - the WebSocket event will update the UI for everyone including the sender
+      await messagesAPI.react(messageId, emoji);
+    },
+    []
+  );
+
+  const createRoom = useCallback(async (name: string, type: Room["type"]) => {
+    const room = await roomsAPI.create(name, type);
+    setRooms((prev) => [...prev, room]);
+    setActiveRoomId(room.id);
+  }, []);
+
+  const activeRoom = rooms.find((r) => r.id === activeRoomId) || null;
+
+  return {
+    rooms,
+    activeRoom,
+    activeRoomId,
+    setActiveRoomId,
+    messages,
+    typingUsers,
+    isLoadingRooms,
+    isLoadingMessages,
+    sendMessage,
+    sendTyping,
+    addReaction,
+    createRoom,
+  };
+}

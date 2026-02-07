@@ -1,0 +1,201 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 20% 97%;
+    --foreground: 230 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 230 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 230 25% 12%;
+
+    --primary: 262 83% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 92%;
+    --secondary-foreground: 230 25% 12%;
+
+    --muted: 220 14% 92%;
+    --muted-foreground: 220 10% 46%;
+
+    --accent: 330 81% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 262 83% 58%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 230 20% 95%;
+    --sidebar-foreground: 230 25% 12%;
+    --sidebar-primary: 262 83% 58%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 92%;
+    --sidebar-accent-foreground: 230 25% 12%;
+    --sidebar-border: 220 13% 88%;
+    --sidebar-ring: 262 83% 58%;
+
+    /* Aura custom tokens */
+    --glass-bg: 0 0% 100% / 0.7;
+    --glass-border: 0 0% 100% / 0.3;
+    --glass-shadow: 262 83% 58% / 0.08;
+    --gradient-start: 262 83% 58%;
+    --gradient-end: 330 81% 60%;
+    --gradient-alt-start: 200 95% 55%;
+    --gradient-alt-end: 262 83% 58%;
+    --bubble-mine: 262 83% 58%;
+    --bubble-other: 220 14% 96%;
+    --bubble-other-foreground: 230 25% 12%;
+    --success: 152 69% 45%;
+    --online: 152 69% 45%;
+  }
+
+  .dark {
+    --background: 230 25% 7%;
+    --foreground: 220 20% 95%;
+
+    --card: 230 25% 10%;
+    --card-foreground: 220 20% 95%;
+
+    --popover: 230 25% 10%;
+    --popover-foreground: 220 20% 95%;
+
+    --primary: 262 83% 62%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 230 20% 15%;
+    --secondary-foreground: 220 20% 95%;
+
+    --muted: 230 20% 15%;
+    --muted-foreground: 220 10% 55%;
+
+    --accent: 330 81% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 230 20% 16%;
+    --input: 230 20% 16%;
+    --ring: 262 83% 62%;
+
+    --sidebar-background: 230 25% 9%;
+    --sidebar-foreground: 220 20% 95%;
+    --sidebar-primary: 262 83% 62%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 230 20% 14%;
+    --sidebar-accent-foreground: 220 20% 95%;
+    --sidebar-border: 230 20% 16%;
+    --sidebar-ring: 262 83% 62%;
+
+    /* Aura custom tokens dark */
+    --glass-bg: 230 25% 12% / 0.6;
+    --glass-border: 220 20% 95% / 0.08;
+    --glass-shadow: 262 83% 62% / 0.15;
+    --gradient-start: 262 83% 62%;
+    --gradient-end: 330 81% 60%;
+    --gradient-alt-start: 200 95% 55%;
+    --gradient-alt-end: 262 83% 62%;
+    --bubble-mine: 262 83% 62%;
+    --bubble-other: 230 20% 14%;
+    --bubble-other-foreground: 220 20% 95%;
+    --success: 152 69% 45%;
+    --online: 152 69% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply backdrop-blur-xl border;
+    background: hsl(var(--glass-bg));
+    border-color: hsl(var(--glass-border));
+    box-shadow: 0 8px 32px hsl(var(--glass-shadow));
+  }
+
+  .glass-strong {
+    @apply backdrop-blur-2xl border;
+    background: hsl(var(--glass-bg));
+    border-color: hsl(var(--glass-border));
+    box-shadow: 0 12px 40px hsl(var(--glass-shadow));
+  }
+
+  .gradient-primary {
+    background: linear-gradient(
+      135deg,
+      hsl(var(--gradient-start)),
+      hsl(var(--gradient-end))
+    );
+  }
+
+  .gradient-alt {
+    background: linear-gradient(
+      135deg,
+      hsl(var(--gradient-alt-start)),
+      hsl(var(--gradient-alt-end))
+    );
+  }
+
+  .gradient-text {
+    background: linear-gradient(
+      135deg,
+      hsl(var(--gradient-start)),
+      hsl(var(--gradient-end))
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 20px hsl(var(--gradient-start) / 0.3),
+                0 0 60px hsl(var(--gradient-start) / 0.1);
+  }
+
+  .glow-accent {
+    box-shadow: 0 0 20px hsl(var(--gradient-end) / 0.3),
+                0 0 60px hsl(var(--gradient-end) / 0.1);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted));
+    border-radius: 999px;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
