@@ -410,3 +410,20 @@ func GetUserById(ctx *gin.Context, db *database.DB, userID string) (*models.User
 
 	return user, nil
 }
+
+func GetUserRoomsByUserID(ctx *gin.Context, db *database.DB, userID string) ([]*models.Room, error) {
+	userIDUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, errors.New("invalid user ID format")
+	}
+
+	query := `SELECT id, name, description, created_at, updated_at, deleted_at FROM rooms WHERE user_id = $1 AND deleted_at IS NULL`
+
+	rooms := []*models.Room{}
+	err = db.QueryRow(query, userIDUUID).Scan(&rooms)
+	if err != nil {
+		return nil, err
+	}
+
+	return rooms, nil
+}

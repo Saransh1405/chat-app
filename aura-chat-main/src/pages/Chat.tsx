@@ -16,6 +16,7 @@ const Chat = () => {
     setActiveRoomId,
     messages,
     typingUsers,
+    userPresence,
     isLoadingMessages,
     sendMessage,
     sendTyping,
@@ -48,6 +49,7 @@ const Chat = () => {
           currentUserId={user?.id || "user-1"}
           isLoading={isLoadingMessages}
           onReact={addReaction}
+          userPresence={userPresence}
         />
 
         <TypingIndicator typingUsers={typingUsers} />

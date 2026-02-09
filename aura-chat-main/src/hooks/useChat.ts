@@ -11,6 +11,7 @@ export function useChat() {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
+  const [userPresence, setUserPresence] = useState<Map<string, 'online' | 'offline'>>(new Map());
   const [isLoadingRooms, setIsLoadingRooms] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -150,6 +151,21 @@ export function useChat() {
       );
     });
 
+    const unsubPresenceUpdate = wsClient.on("presence_update", (payload: any) => {
+      console.log("[useChat] Received presence_update event:", payload);
+      // payload contains: { user_id, status, timestamp }
+      // Don't update presence for current user (we know we're online)
+      if (payload.user_id === user?.id) {
+        return;
+      }
+      
+      setUserPresence((prev) => {
+        const updated = new Map(prev);
+        updated.set(payload.user_id, payload.status);
+        return updated;
+      });
+    });
+
     return () => {
       console.log("[useChat] Cleaning up WebSocket listeners for room:", activeRoomId);
       wsClient.send("unsubscribe", {}, activeRoomId);
@@ -157,6 +173,7 @@ export function useChat() {
       unsubTyping();
       unsubReactionAdded();
       unsubReactionRemoved();
+      unsubPresenceUpdate();
     };
   }, [activeRoomId, user?.id]);
 
@@ -223,6 +240,7 @@ export function useChat() {
     setActiveRoomId,
     messages,
     typingUsers,
+    userPresence,
     isLoadingRooms,
     isLoadingMessages,
     sendMessage,

@@ -12,9 +12,10 @@ interface MessageBubbleProps {
   showAvatar: boolean;
   currentUserId: string;
   onReact: (messageId: string, emoji: string) => void;
+  isOnline?: boolean;
 }
 
-export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReact }: MessageBubbleProps) {
+export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReact, isOnline }: MessageBubbleProps) {
   const sender = message.user;
   const time = message.created_at ? format(new Date(message.created_at), "h:mm a") : "";
 
@@ -33,6 +34,7 @@ export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReac
             username={sender.username}
             avatarUrl={sender.avatar_url}
             size="sm"
+            isOnline={!isMe ? isOnline : undefined}
           />
         )}
       </div>

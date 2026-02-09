@@ -8,9 +8,10 @@ interface MessageListProps {
   currentUserId: string;
   isLoading: boolean;
   onReact: (messageId: string, emoji: string) => void;
+  userPresence?: Map<string, 'online' | 'offline'>;
 }
 
-export function MessageList({ messages, currentUserId, isLoading, onReact }: MessageListProps) {
+export function MessageList({ messages, currentUserId, isLoading, onReact, userPresence }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,6 +42,8 @@ export function MessageList({ messages, currentUserId, isLoading, onReact }: Mes
         const prevMsg = messages[i - 1];
         const showAvatar = !prevMsg || prevMsg.user_id !== msg.user_id;
 
+        const isOnline = msg.user_id === currentUserId ? true : userPresence?.get(msg.user_id) === 'online';
+
         return (
           <MessageBubble
             key={msg.id}
@@ -49,6 +52,7 @@ export function MessageList({ messages, currentUserId, isLoading, onReact }: Mes
             showAvatar={showAvatar}
             currentUserId={currentUserId}
             onReact={onReact}
+            isOnline={isOnline}
           />
         );
       })}

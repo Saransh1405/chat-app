@@ -47,6 +47,6 @@ export interface AuthResponse {
 }
 
 export interface WSEvent {
-  type: "message" | "typing" | "presence" | "reaction";
+  type: "message" | "typing" | "presence" | "presence_update" | "reaction";
   payload: unknown;
 }
