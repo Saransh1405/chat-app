@@ -11,6 +11,8 @@ import (
 	"chat-app/internal/utils/jwt"
 	"chat-app/internal/utils/logger"
 
+	"chat-app/internal/utils/helperfunctions"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -123,6 +125,13 @@ func (h *Handler) HandleConnection(c *gin.Context) {
 		return
 	}
 
+	userRooms, err := helperfunctions.GetUserRoomsByUserID(c, h.db, userId)
+	if err != nil {
+		logger.Error("Error getting user rooms", err, logger.Fields{
+			"user_id": userId,
+		})
+	}
+
 	connection := &Connection{
 		ID:      uuid.New().String(),
 		UserID:  userId,
@@ -130,6 +139,11 @@ func (h *Handler) HandleConnection(c *gin.Context) {
 		RoomIDs: make(map[string]bool),
 		Send:    make(chan MessageStruct, 256),
 		Hub:     h.hub,
+	}
+
+	for _, room := range userRooms {
+		connection.RoomIDs[room.ID.String()] = true
+		h.hub.SubscribeToRoom(connection, room.ID.String())
 	}
 
 	wsConnection := &WSConnection{
@@ -185,7 +199,6 @@ func (ws *WSConnection) readPump() {
 		switch msg.Type {
 		case "subscribe":
 			if msg.RoomID != "" {
-				// For now, allow subscription without validation (you can uncomment validation later)
 				ws.Hub.SubscribeToRoom(ws.Connection, msg.RoomID)
 				logger.LogWebSocketEvent("subscribe", ws.UserID, msg.RoomID, logger.Fields{
 					"connection_id": ws.ID,
@@ -197,40 +210,6 @@ func (ws *WSConnection) readPump() {
 						"message": "Successfully subscribed to room",
 					},
 				}
-				// Uncomment below to enable room membership validation
-				// isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.db, ws.UserID, msg.RoomID)
-				// if err != nil {
-				// 	logger.Error("Failed to validate room membership for WebSocket subscribe", err, logger.Fields{
-				// 		"user_id":       ws.UserID,
-				// 		"room_id":       msg.RoomID,
-				// 		"connection_id": ws.ID,
-				// 	})
-				// 	ws.Send <- MessageStruct{
-				// 		Type: "error",
-				// 		Payload: map[string]interface{}{
-				// 			"message": "error validating user is member of room",
-				// 		},
-				// 	}
-				// 	break
-				// }
-				// if isMember {
-				// 	ws.Hub.SubscribeToRoom(ws.Connection, msg.RoomID)
-				// 	logger.LogWebSocketEvent("subscribe", ws.UserID, msg.RoomID, logger.Fields{
-				// 		"connection_id": ws.ID,
-				// 	})
-				// } else {
-				// 	logger.Warn("User attempted to subscribe to room they're not a member of", logger.Fields{
-				// 		"user_id":       ws.UserID,
-				// 		"room_id":       msg.RoomID,
-				// 		"connection_id": ws.ID,
-				// 	})
-				// 	ws.Send <- MessageStruct{
-				// 		Type: "error",
-				// 		Payload: map[string]interface{}{
-				// 			"message": "user is not a member of the room",
-				// 		},
-				// 	}
-				// }
 			} else {
 				ws.Send <- MessageStruct{
 					Type: "error",
@@ -274,23 +253,6 @@ func (ws *WSConnection) readPump() {
 				break
 			}
 
-			// isMember, err := helperfunctions.ValidateUserIsMemberOfRoom(ws.db, ws.UserID, msg.RoomID)
-			// if err != nil {
-			// 	logger.Error("Error validating user is member of room for WebSocket message", err, logger.Fields{
-			// 		"user_id":       ws.UserID,
-			// 		"room_id":       msg.RoomID,
-			// 		"connection_id": ws.ID,
-			// 	})
-			// 	ws.Send <- MessageStruct{
-			// 		Type: "error",
-			// 		Payload: map[string]interface{}{
-			// 			"message": "error validating user is member of room",
-			// 		},
-			// 	}
-			// 	break
-			// }
-
-			// if isMember {
 			ws.Hub.Broadcast <- struct {
 				RoomID  string
 				Message MessageStruct
@@ -304,19 +266,19 @@ func (ws *WSConnection) readPump() {
 			logger.LogWebSocketEvent("message_sent", ws.UserID, msg.RoomID, logger.Fields{
 				"connection_id": ws.ID,
 			})
-			// } else {
-			logger.Warn("User attempted to send WebSocket message to room they're not a member of", logger.Fields{
-				"user_id":       ws.UserID,
-				"room_id":       msg.RoomID,
-				"connection_id": ws.ID,
-			})
-			ws.Send <- MessageStruct{
-				Type: "error",
-				Payload: map[string]interface{}{
-					"message": "user is not a member of the room",
+		case "live":
+			ws.Hub.Broadcast <- struct {
+				RoomID  string
+				Message MessageStruct
+			}{
+				RoomID: msg.RoomID,
+				Message: MessageStruct{
+					Type: "live",
+					Payload: map[string]interface{}{
+						"user_id": ws.UserID,
+					},
 				},
 			}
-			// }
 		default:
 			logger.Warn("Unknown WebSocket message type", logger.Fields{
 				"message_type":  msg.Type,

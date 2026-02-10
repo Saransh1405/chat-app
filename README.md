@@ -30,6 +30,7 @@ See [HOW_IT_WORKS.md](./HOW_IT_WORKS.md) for detailed explanation of how the sys
 
 ## Prerequisites
 
+
 - Go 1.21 or higher
 - PostgreSQL 15+ (or use Docker Compose)
 - Docker and Docker Compose (for local development)

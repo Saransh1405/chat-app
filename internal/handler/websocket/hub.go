@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"sync"
+	"time"
 
 	"chat-app/internal/utils/logger"
 )
@@ -34,6 +35,12 @@ type Hub struct {
 		Message MessageStruct
 	}
 
+	PresenceUpdate chan struct {
+		RoomIDs []string
+		UserID  string
+		Status  string
+	}
+
 	mu sync.RWMutex
 }
 
@@ -46,6 +53,11 @@ func NewHub() *Hub {
 		Broadcast: make(chan struct {
 			RoomID  string
 			Message MessageStruct
+		}),
+		PresenceUpdate: make(chan struct {
+			RoomIDs []string
+			UserID  string
+			Status  string
 		}),
 	}
 }
@@ -69,22 +81,63 @@ func (h *Hub) Run() {
 
 		case broadcast := <-h.Broadcast:
 			h.broadcastToRoom(broadcast.RoomID, broadcast.Message)
+
+		case presenceUpdate := <-h.PresenceUpdate:
+			h.UpdatePresence(presenceUpdate.RoomIDs, presenceUpdate.UserID, presenceUpdate.Status)
 		}
 	}
 }
 
 func (h *Hub) registerConnection(conn *Connection) {
+	isFirstConnection := h.Connections[conn.UserID] == nil || len(h.Connections[conn.UserID]) == 0
+
 	if h.Connections[conn.UserID] == nil {
 		h.Connections[conn.UserID] = make(map[*Connection]bool)
 	}
 	h.Connections[conn.UserID][conn] = true
+
+	if isFirstConnection && len(conn.RoomIDs) > 0 {
+		roomIDs := make([]string, 0, len(conn.RoomIDs))
+		for roomID := range conn.RoomIDs {
+			roomIDs = append(roomIDs, roomID)
+		}
+		h.PresenceUpdate <- struct {
+			RoomIDs []string
+			UserID  string
+			Status  string
+		}{
+			RoomIDs: roomIDs,
+			UserID:  conn.UserID,
+			Status:  "online",
+		}
+	}
 }
 
 func (h *Hub) unregisterConnection(conn *Connection) {
+	wasLastConnection := false
 	if userConns, ok := h.Connections[conn.UserID]; ok {
+		wasLastConnection = len(userConns) == 1
+
 		delete(userConns, conn)
 		if len(userConns) == 0 {
 			delete(h.Connections, conn.UserID)
+		}
+	}
+
+	roomIDs := make([]string, 0, len(conn.RoomIDs))
+	for roomID := range conn.RoomIDs {
+		roomIDs = append(roomIDs, roomID)
+	}
+
+	if wasLastConnection && len(roomIDs) > 0 {
+		h.PresenceUpdate <- struct {
+			RoomIDs []string
+			UserID  string
+			Status  string
+		}{
+			RoomIDs: roomIDs,
+			UserID:  conn.UserID,
+			Status:  "offline",
 		}
 	}
 
@@ -154,14 +207,12 @@ func (h *Hub) broadcastToRoom(roomID string, message MessageStruct) {
 		return
 	}
 
-	// Send messages outside of lock to avoid blocking
 	sentCount := 0
 	for _, conn := range roomConns {
 		select {
 		case conn.Send <- message:
 			sentCount++
 		default:
-			// Channel is full or closed, unregister connection
 			logger.Warn("Failed to send message to connection, channel full or closed", logger.Fields{
 				"connection_id": conn.ID,
 				"user_id":       conn.UserID,
@@ -190,4 +241,19 @@ func (h *Hub) GetRoomConnections(roomID string) int {
 		return len(roomConns)
 	}
 	return 0
+}
+
+func (h *Hub) UpdatePresence(roomIDs []string, userID string, status string) {
+	presenceMsg := MessageStruct{
+		Type: "presence_update",
+		Payload: map[string]interface{}{
+			"user_id":   userID,
+			"status":    status,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		},
+	}
+
+	for _, roomID := range roomIDs {
+		h.broadcastToRoom(roomID, presenceMsg)
+	}
 }
