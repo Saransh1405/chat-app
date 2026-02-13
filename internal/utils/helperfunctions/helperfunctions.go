@@ -417,13 +417,75 @@ func GetUserRoomsByUserID(ctx *gin.Context, db *database.DB, userID string) ([]*
 		return nil, errors.New("invalid user ID format")
 	}
 
-	query := `SELECT id, name, description, created_at, updated_at, deleted_at FROM rooms WHERE user_id = $1 AND deleted_at IS NULL`
+	roomIDsQuery := `SELECT room_id FROM room_members WHERE user_id = $1`
+	rows, err := db.Query(roomIDsQuery, userIDUUID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roomIDs []uuid.UUID
+	for rows.Next() {
+		var roomID uuid.UUID
+		if err := rows.Scan(&roomID); err != nil {
+			return nil, err
+		}
+		roomIDs = append(roomIDs, roomID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(roomIDs) == 0 {
+		return []*models.Room{}, nil
+	}
 
 	rooms := []*models.Room{}
-	err = db.QueryRow(query, userIDUUID).Scan(&rooms)
+	for _, roomID := range roomIDs {
+		room := &models.Room{}
+		roomQuery := `SELECT id, name, description, created_at, updated_at, deleted_at FROM rooms WHERE id = $1 AND deleted_at IS NULL`
+		err := db.QueryRow(roomQuery, roomID).Scan(
+			&room.ID,
+			&room.Name,
+			&room.Description,
+			&room.CreatedAt,
+			&room.UpdatedAt,
+			&room.DeletedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		rooms = append(rooms, room)
+	}
+
+	return rooms, nil
+}
+
+func SaveFileToDB(ctx *gin.Context, db *database.DB, file *models.File) (*models.File, error) {
+	query := `INSERT INTO files (application_id, message_id, user_id, filename, file_path, file_size, mime_type, uploaded_at)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	          RETURNING id, uploaded_at`
+
+	now := time.Now()
+
+	// if file.ApplicationID == nil {
+	// 	file.ApplicationID = &uuid.Nil
+	// }
+
+	err := db.QueryRow(query,
+		file.ApplicationID,
+		file.MessageID,
+		file.UserID,
+		file.Filename,
+		file.FilePath,
+		file.FileSize,
+		file.MimeType,
+		now,
+	).Scan(&file.ID, &file.UploadedAt)
+
 	if err != nil {
 		return nil, err
 	}
 
-	return rooms, nil
+	return file, nil
 }

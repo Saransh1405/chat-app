@@ -13,6 +13,7 @@ import (
 	"chat-app/internal/database"
 	"chat-app/internal/handler/rest"
 	"chat-app/internal/handler/websocket"
+	imagekit "chat-app/internal/image-kit"
 	"chat-app/internal/middleware"
 	"chat-app/internal/utils/logger"
 
@@ -50,7 +51,7 @@ func main() {
 		"name": cfg.Database.Name,
 	})
 
-	if cfg.Environment == "PRODUCTION" {
+	if cfg.Environment == "DEVELOPMENT" {
 		if err := database.RunMigrations(cfg.Database); err != nil {
 			logger.Fatal("Failed to run migrations", err, logger.Fields{})
 		}
@@ -63,6 +64,11 @@ func main() {
 
 	if cfg.Environment == "PRODUCTION" {
 		gin.SetMode(gin.ReleaseMode)
+	}
+
+	ik, err := imagekit.InitImageKit(cfg)
+	if err != nil {
+		logger.Fatal("Failed to initialize ImageKit client", err, logger.Fields{})
 	}
 
 	// kafka, err := kafka.NewKafka(cfg.Kafka.Brokers)
@@ -98,6 +104,12 @@ func main() {
 	router.GET("/health", healthCheck)
 	router.GET("/health/ready", readinessCheck(db))
 	router.GET("/health/live", livenessCheck)
+
+	fileUploadHandler := rest.NewFileUploadHandler(db, ik)
+	fileUpload := router.Group("/api/v1/file/upload")
+	{
+		fileUpload.POST("", fileUploadHandler.Upload)
+	}
 
 	v1 := router.Group("/api/v1")
 	{
@@ -183,6 +195,8 @@ func main() {
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+
+	logger.Info("ImageKit client initialized", logger.Fields{})
 
 	go func() {
 		logger.Info("Server starting", logger.Fields{

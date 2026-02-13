@@ -111,7 +111,7 @@ CREATE INDEX idx_message_reads_read_at ON message_reads(read_at);
 
 CREATE TABLE IF NOT EXISTS files (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    application_id UUID NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
+    application_id UUID REFERENCES applications(id) ON DELETE CASCADE,
     message_id UUID REFERENCES messages(id),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     filename VARCHAR(255) NOT NULL,
@@ -122,7 +122,6 @@ CREATE TABLE IF NOT EXISTS files (
     deleted_at TIMESTAMP WITH TIME ZONE
 );
 
-CREATE INDEX idx_files_application_id ON files(application_id);
 CREATE INDEX idx_files_message_id ON files(message_id);
 CREATE INDEX idx_files_user_id ON files(user_id);
 CREATE INDEX idx_files_deleted_at ON files(deleted_at);

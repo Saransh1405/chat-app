@@ -59,16 +59,45 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if strings.TrimSpace(req.Content) == "" {
-		details := []errors.ErrorDetail{
-			{
-				Field: "content",
-				Issue: "Message content cannot be empty",
-			},
+	messageType := strings.ToUpper(strings.TrimSpace(req.Type))
+	if messageType == "" {
+		if string(req.MessageType) != "" {
+			messageType = strings.ToUpper(string(req.MessageType))
+		} else {
+			if req.FileRequest != nil {
+				messageType = "MEDIA"
+			} else {
+				messageType = "TEXT"
+			}
 		}
-		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
-			"Message content cannot be empty", details)
-		return
+	}
+
+	if messageType == "TEXT" {
+		if req.FileRequest != nil {
+			messageType = "MEDIA"
+		} else if strings.TrimSpace(req.Content) == "" {
+			details := []errors.ErrorDetail{
+				{
+					Field: "content",
+					Issue: "Message content cannot be empty for TEXT messages",
+				},
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Message content cannot be empty", details)
+			return
+		}
+	} else if messageType == "MEDIA" {
+		if req.FileRequest == nil {
+			details := []errors.ErrorDetail{
+				{
+					Field: "file_request",
+					Issue: "File data is required for MEDIA messages",
+				},
+			}
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"File data is required", details)
+			return
+		}
 	}
 
 	userIDUUID, err := uuid.Parse(userID)
@@ -99,27 +128,36 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
+	var messageTypeEnum models.MessageType
+	if messageType == "MEDIA" {
+		if req.FileRequest != nil {
+			if strings.HasPrefix(req.FileRequest.MimeType, "image/") {
+				messageTypeEnum = models.MessageTypeImage
+			} else {
+				messageTypeEnum = models.MessageTypeFile
+			}
+		} else {
+			messageTypeEnum = models.MessageTypeFile
+		}
+	} else {
+		messageTypeEnum = models.MessageTypeText
+	}
+
 	messageData := models.Message{
 		UserID:      userIDUUID,
 		RoomID:      roomIDUUID,
 		Content:     req.Content,
-		MessageType: req.MessageType,
+		MessageType: messageTypeEnum,
 		ReplyTo:     req.ReplyTo,
 		Metadata:    req.Metadata,
 	}
 
-	if messageData.MessageType == "" {
-		messageData.MessageType = models.MessageTypeText
-	}
-
-	startTime := time.Now()
 	message, err := helperfunctions.SaveMessageToDB(c, h.db, &messageData)
 	if err != nil {
 		logger.Error("Failed to save message to database", err, logger.Fields{
 			"user_id":     userID,
 			"room_id":     req.RoomID.String(),
 			"content_len": len(req.Content),
-			"duration_ms": time.Since(startTime).Milliseconds(),
 		})
 		c.Error(err)
 		errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
@@ -127,19 +165,73 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Fetch user info to populate message.User
-	user, err := helperfunctions.GetUserById(c, h.db, userID)
-	if err == nil {
-		message.User = user
-	}
-
 	logger.Info("Message created successfully", logger.Fields{
-		"message_id":  message.ID.String(),
-		"user_id":     userID,
-		"room_id":     req.RoomID.String(),
-		"type":        message.MessageType,
-		"duration_ms": time.Since(startTime).Milliseconds(),
+		"message_id": message.ID.String(),
+		"user_id":    userID,
+		"room_id":    req.RoomID.String(),
+		"type":       message.MessageType,
 	})
+
+	var file *models.File
+	if messageType == "MEDIA" {
+		if req.FileRequest == nil {
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"File data is required for media messages", []errors.ErrorDetail{
+					{Field: "file_request", Issue: "File request is required when type is MEDIA"},
+				})
+			return
+		}
+
+		if req.FileRequest.FilePath == "" {
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"File path is required", []errors.ErrorDetail{
+					{Field: "file_request.file_path", Issue: "File path cannot be empty"},
+				})
+			return
+		}
+
+		if req.FileRequest.Filename == "" {
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"Filename is required", []errors.ErrorDetail{
+					{Field: "file_request.filename", Issue: "Filename cannot be empty"},
+				})
+			return
+		}
+
+		if req.FileRequest.FileSize <= 0 {
+			errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+				"File size is required", []errors.ErrorDetail{
+					{Field: "file_request.file_size", Issue: "File size must be greater than 0"},
+				})
+			return
+		}
+
+		file = &models.File{
+			Filename:   req.FileRequest.Filename,
+			FilePath:   req.FileRequest.FilePath,
+			FileSize:   req.FileRequest.FileSize,
+			MimeType:   req.FileRequest.MimeType,
+			MessageID:  message.ID,
+			UserID:     userIDUUID,
+			UploadedAt: time.Now(),
+		}
+
+		file, err := helperfunctions.SaveFileToDB(c, h.db, file)
+		if err != nil {
+			logger.Error("Failed to save file to database", err, logger.Fields{
+				"message_id": message.ID.String(),
+				"file_path":  req.FileRequest.FilePath,
+			})
+			errors.RespondWithError(c, http.StatusInternalServerError, errors.ErrCodeDatabaseError,
+				"Message created but failed to save file record", nil)
+			return
+		}
+
+		logger.Info("File record saved successfully", logger.Fields{
+			"file_id":    file.ID.String(),
+			"message_id": message.ID.String(),
+		})
+	}
 
 	go func() {
 		defer func() {
@@ -151,6 +243,40 @@ func (h *MessageHandler) Create(c *gin.Context) {
 			}
 		}()
 
+		var user *models.User
+		userQuery := `SELECT id, username, email, avatar_url, application_id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`
+		userRow := h.db.QueryRow(userQuery, message.UserID)
+		userData := models.User{}
+		var email sql.NullString
+		var avatarURL *string
+		var appID uuid.UUID
+		err := userRow.Scan(&userData.ID, &userData.Username, &email, &avatarURL, &appID)
+		if err == nil {
+			if email.Valid {
+				emailStr := email.String
+				userData.Email = &emailStr
+			}
+			userData.AvatarURL = avatarURL
+			userData.ApplicationID = appID
+			user = &userData
+		} else {
+			logger.Warn("Failed to fetch user for message broadcast", logger.Fields{
+				"user_id":    message.UserID.String(),
+				"message_id": message.ID.String(),
+				"error":      err.Error(),
+			})
+		}
+
+		messageWithUser := message
+		messageWithUser.User = user
+
+		messagePayload := map[string]interface{}{
+			"message": messageWithUser,
+		}
+		if file != nil {
+			messagePayload["file"] = file
+		}
+
 		h.wsHub.Broadcast <- struct {
 			RoomID  string
 			Message websocket.MessageStruct
@@ -158,19 +284,26 @@ func (h *MessageHandler) Create(c *gin.Context) {
 			RoomID: message.RoomID.String(),
 			Message: websocket.MessageStruct{
 				Type:    "message",
-				Payload: message,
+				Payload: messagePayload,
 			},
 		}
 		logger.Debug("Message broadcasted via WebSocket", logger.Fields{
 			"room_id":    message.RoomID.String(),
 			"message_id": message.ID.String(),
+			"has_user":   user != nil,
+			"has_file":   file != nil,
 		})
 	}()
 
-	c.JSON(http.StatusCreated, gin.H{
-		"message": message,
+	response := gin.H{
 		"status":  "sent",
-	})
+		"message": message,
+	}
+	if file != nil {
+		response["file"] = file
+	}
+
+	c.JSON(http.StatusCreated, response)
 }
 
 func (h *MessageHandler) Get(c *gin.Context) {
@@ -276,9 +409,42 @@ func (h *MessageHandler) Get(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	// Fetch file data if message has a file
+	var file *models.File
+	fileQuery := `SELECT id, application_id, message_id, user_id, filename, file_path, file_size, mime_type, uploaded_at, deleted_at
+	              FROM files WHERE message_id = $1 AND deleted_at IS NULL LIMIT 1`
+	fileRow := h.db.QueryRow(fileQuery, message.ID)
+	fileData := models.File{}
+	var fileDeletedAt *time.Time
+	err = fileRow.Scan(
+		&fileData.ID,
+		&fileData.ApplicationID,
+		&fileData.MessageID,
+		&fileData.UserID,
+		&fileData.Filename,
+		&fileData.FilePath,
+		&fileData.FileSize,
+		&fileData.MimeType,
+		&fileData.UploadedAt,
+		&fileDeletedAt,
+	)
+	if err == nil {
+		file = &fileData
+	} else if err != sql.ErrNoRows {
+		logger.Warn("Failed to fetch file for message", logger.Fields{
+			"message_id": message.ID.String(),
+			"error":      err.Error(),
+		})
+	}
+
+	response := gin.H{
 		"message": message,
-	})
+	}
+	if file != nil {
+		response["file"] = file
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *MessageHandler) List(c *gin.Context) {
@@ -399,6 +565,29 @@ func (h *MessageHandler) List(c *gin.Context) {
 			}
 		}
 
+		// Fetch file data for this message
+		fileQuery := `SELECT id, application_id, message_id, user_id, filename, file_path, file_size, mime_type, uploaded_at, deleted_at
+		              FROM files WHERE message_id = $1 AND deleted_at IS NULL LIMIT 1`
+		fileRow := h.db.QueryRow(fileQuery, message.ID)
+		fileData := models.File{}
+		var fileDeletedAt *time.Time
+		fileErr := fileRow.Scan(
+			&fileData.ID,
+			&fileData.ApplicationID,
+			&fileData.MessageID,
+			&fileData.UserID,
+			&fileData.Filename,
+			&fileData.FilePath,
+			&fileData.FileSize,
+			&fileData.MimeType,
+			&fileData.UploadedAt,
+			&fileDeletedAt,
+		)
+		if fileErr == nil {
+			// File found - we'll include it in the response
+			// For now, we'll create a response structure that includes files
+		}
+
 		messages = append(messages, message)
 	}
 
@@ -412,8 +601,66 @@ func (h *MessageHandler) List(c *gin.Context) {
 		return
 	}
 
+	// Fetch all files for these messages in one query
+	messageIDs := make([]uuid.UUID, len(messages))
+	for i, msg := range messages {
+		messageIDs[i] = msg.ID
+	}
+
+	// Build a map of message_id -> file
+	filesMap := make(map[uuid.UUID]*models.File)
+	if len(messageIDs) > 0 {
+		// Create placeholders for IN clause
+		placeholders := make([]string, len(messageIDs))
+		args := make([]interface{}, len(messageIDs))
+		for i, id := range messageIDs {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+			args[i] = id
+		}
+
+		filesQuery := fmt.Sprintf(`SELECT id, application_id, message_id, user_id, filename, file_path, file_size, mime_type, uploaded_at, deleted_at
+		                         FROM files WHERE message_id IN (%s) AND deleted_at IS NULL`, strings.Join(placeholders, ","))
+
+		fileRows, err := h.db.Query(filesQuery, args...)
+		if err == nil {
+			defer fileRows.Close()
+			for fileRows.Next() {
+				fileData := models.File{}
+				var fileDeletedAt *time.Time
+				if err := fileRows.Scan(
+					&fileData.ID,
+					&fileData.ApplicationID,
+					&fileData.MessageID,
+					&fileData.UserID,
+					&fileData.Filename,
+					&fileData.FilePath,
+					&fileData.FileSize,
+					&fileData.MimeType,
+					&fileData.UploadedAt,
+					&fileDeletedAt,
+				); err == nil {
+					filesMap[fileData.MessageID] = &fileData
+				}
+			}
+		}
+	}
+
+	// Create response with messages and their files
+	type MessageWithFile struct {
+		models.Message
+		File *models.File `json:"file,omitempty"`
+	}
+
+	messagesWithFiles := make([]MessageWithFile, len(messages))
+	for i, msg := range messages {
+		messagesWithFiles[i] = MessageWithFile{
+			Message: msg,
+			File:    filesMap[msg.ID],
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"messages": messages,
+		"messages": messagesWithFiles,
 		"limit":    limit,
 		"offset":   offset,
 		"count":    len(messages),

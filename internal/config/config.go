@@ -19,6 +19,7 @@ type Config struct {
 	FileStorage FileStorageConfig
 	Logging     LoggingConfig
 	Environment string
+	ImageKit    ImageKitConfig
 }
 
 type ServerConfig struct {
@@ -76,6 +77,12 @@ type LoggingConfig struct {
 	Format string
 }
 
+type ImageKitConfig struct {
+	PublicKey   string
+	PrivateKey  string
+	UrlEndpoint string
+}
+
 func Load() (*Config, error) {
 	_ = godotenv.Load()
 
@@ -128,6 +135,11 @@ func Load() (*Config, error) {
 			Format: getEnv("LOG_FORMAT", "text"),
 		},
 		Environment: getEnv("ENVIRONMENT", "development"),
+		ImageKit: ImageKitConfig{
+			PublicKey:   getEnv("IMAGE_KIT_PUBLIC_KEY", ""),
+			PrivateKey:  getEnv("IMAGE_KIT_PRIVATE_KEY", ""),
+			UrlEndpoint: getEnv("IMAGE_KIT_ENDPOINT_URL", ""),
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
