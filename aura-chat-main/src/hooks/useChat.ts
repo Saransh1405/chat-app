@@ -49,20 +49,33 @@ export function useChat() {
 
     const unsubMessage = wsClient.on("message", (payload: any) => {
       console.log("[useChat] Received message event:", payload);
-      // My backend returns the message directly or in payload.
-      // Based on previous work, payload IS the message.
-      if (payload.room_id === activeRoomId) {
+      // Backend sends: { message: {...}, file: {...} }
+      const message = payload.message || payload;
+      const file = payload.file;
+      
+      // Merge file data into message if present
+      const messageWithFile = file ? {
+        ...message,
+        file: {
+          filename: file.filename,
+          file_path: file.file_path,
+          file_size: file.file_size,
+          mime_type: file.mime_type,
+        }
+      } : message;
+      
+      if (messageWithFile.room_id === activeRoomId) {
         console.log("[useChat] Message belongs to active room, adding to state");
         setMessages((prev) => {
-          if (prev.some(m => m.id === payload.id)) {
+          if (prev.some(m => m.id === messageWithFile.id)) {
             console.log("[useChat] Message already exists, skipping");
             return prev;
           }
           console.log("[useChat] Adding new message to state");
-          return [...prev, payload];
+          return [...prev, messageWithFile];
         });
       } else {
-        console.log("[useChat] Message belongs to different room:", payload.room_id);
+        console.log("[useChat] Message belongs to different room:", messageWithFile.room_id);
       }
     });
 
@@ -178,15 +191,26 @@ export function useChat() {
   }, [activeRoomId, user?.id]);
 
   const sendMessage = useCallback(
-    async (content: string, imageUrl?: string) => {
+    async (content: string, imageUrl?: string, fileData?: {
+      filename: string;
+      file_path: string;
+      file_size: number;
+      mime_type: string;
+    }) => {
       if (!activeRoomId) return;
+      
       // Backend broadcasts the message, so we don't need to send it via WS manually.
       // We might want to add it to local state immediately for better UX (optimistic update),
       // but the WS event will also trigger an update.
-      await messagesAPI.send(activeRoomId, content, imageUrl);
+      
+      // messagesAPI.send() will automatically set:
+      // - type: "MEDIA" if fileData is provided
+      // - type: "TEXT" if no fileData
+      await messagesAPI.send(activeRoomId, content, imageUrl, fileData, user?.application_id);
+      
       // Let the WebSocket event update the message list to ensure consistency
     },
-    [activeRoomId]
+    [activeRoomId, user?.application_id]
   );
 
   const sendTyping = useCallback(() => {

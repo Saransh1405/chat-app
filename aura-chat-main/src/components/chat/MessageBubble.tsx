@@ -4,7 +4,7 @@ import { UserAvatar } from "./UserAvatar";
 import { EmojiPicker } from "./EmojiPicker";
 import type { Message, User } from "@/types/chat";
 import { motion } from "framer-motion";
-import { SmilePlus } from "lucide-react";
+import { SmilePlus, File } from "lucide-react";
 
 interface MessageBubbleProps {
   message: Message;
@@ -73,6 +73,71 @@ export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReac
                 <p className={cn("mt-1 text-xs", isMe ? "text-white/70" : "text-muted-foreground")}>
                   {message.image_name}
                 </p>
+              )}
+            </div>
+          )}
+
+          {/* File attachment */}
+          {message.file && (
+            <div className="mt-2">
+              {message.file.mime_type.startsWith("image/") ? (
+                // Image files: Show large preview
+                <div className="overflow-hidden rounded-lg">
+                  <a
+                    href={message.file.file_path}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <img
+                      src={message.file.file_path}
+                      alt={message.file.filename}
+                      className="max-h-64 w-full cursor-pointer object-cover transition-opacity hover:opacity-90"
+                      loading="lazy"
+                    />
+                  </a>
+                  {message.file.filename && (
+                    <p className={cn("mt-1 text-xs", isMe ? "text-white/70" : "text-muted-foreground")}>
+                      {message.file.filename}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                // Other files: Show file card
+                <a
+                  href={message.file.file_path}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg border p-3 transition-colors hover:bg-opacity-80",
+                    isMe
+                      ? "border-white/20 bg-white/10"
+                      : "border-border bg-muted/50"
+                  )}
+                >
+                  <div className={cn(
+                    "flex h-10 w-10 items-center justify-center rounded-md",
+                    isMe ? "bg-white/20" : "bg-primary/10"
+                  )}>
+                    <File className={cn(
+                      "h-5 w-5",
+                      isMe ? "text-white" : "text-primary"
+                    )} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={cn(
+                      "truncate text-sm font-medium",
+                      isMe ? "text-white" : "text-foreground"
+                    )}>
+                      {message.file.filename}
+                    </p>
+                    <p className={cn(
+                      "text-xs",
+                      isMe ? "text-white/70" : "text-muted-foreground"
+                    )}>
+                      {(message.file.file_size / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                </a>
               )}
             </div>
           )}
