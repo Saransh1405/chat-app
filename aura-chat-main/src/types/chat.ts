@@ -33,6 +33,14 @@ export interface Message {
   image_url?: string;
   image_name?: string;
   user?: User;
+  // File message support
+  message_type?: "text" | "image" | "file";
+  file?: {
+    filename: string;
+    file_path: string;
+    file_size: number;
+    mime_type: string;
+  };
 }
 
 export interface TypingUser {

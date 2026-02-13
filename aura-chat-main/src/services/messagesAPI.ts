@@ -40,12 +40,38 @@ export const messagesAPI = {
   },
 
   async list(roomId: string): Promise<Message[]> {
-    const res = await api.get<{ messages: Message[] }>(`/messages?room_id=${roomId}`);
+    const res = await api.get<{ messages: Array<Message & { file?: any }> }>(`/messages?room_id=${roomId}`);
     const messages = res.messages ? [...res.messages].reverse() : [];
+
+    // Process messages to include file data
+    const messagesWithFiles = messages.map((msg: any) => {
+      const message: Message = {
+        id: msg.id,
+        content: msg.content,
+        user_id: msg.user_id,
+        room_id: msg.room_id,
+        created_at: msg.created_at,
+        user: msg.user,
+        message_type: msg.message_type,
+        reactions: msg.reactions || [],
+      };
+      
+      // Include file data if present
+      if (msg.file) {
+        message.file = {
+          filename: msg.file.filename,
+          file_path: msg.file.file_path,
+          file_size: msg.file.file_size,
+          mime_type: msg.file.mime_type,
+        };
+      }
+      
+      return message;
+    });
 
     // Fetch reactions for all messages
     const messagesWithReactions = await Promise.all(
-      messages.map(async (msg) => {
+      messagesWithFiles.map(async (msg) => {
         const reactions = await messagesAPI.getReactions(msg.id);
         return {
           ...msg,
@@ -57,12 +83,34 @@ export const messagesAPI = {
     return messagesWithReactions;
   },
 
-  async send(roomId: string, content: string, imageUrl?: string): Promise<Message> {
+  async send(roomId: string, content: string, imageUrl?: string, fileData?: {
+    filename: string;
+    file_path: string;
+    file_size: number;
+    mime_type: string;
+  }, applicationId?: string): Promise<Message> {
+    // If file data is provided, send as MEDIA type
+    if (fileData) {
+      const res = await api.post<{ message: Message; status: string }>("/messages", {
+        type: "MEDIA",
+        room_id: roomId,
+        content: content || "", // Optional caption
+        application_id: applicationId,
+        file_request: {
+          filename: fileData.filename,
+          file_path: fileData.file_path,
+          file_size: fileData.file_size,
+          mime_type: fileData.mime_type,
+        },
+      });
+      return res.message;
+    }
+
+    // Otherwise send as TEXT type (no file attachments)
     const res = await api.post<{ message: Message }>("/messages", {
+      type: "TEXT",
       room_id: roomId,
-      content,
-      message_type: imageUrl ? "image" : "text",
-      metadata: imageUrl ? { image_url: imageUrl } : {},
+      content: content || "",
     });
     return res.message;
   },

@@ -52,12 +52,14 @@ type UserDeleteRequest struct {
 
 // Message Request Models
 type MessageCreateRequest struct {
-	ApplicationID *uuid.UUID  `json:"application_id,omitempty"`
-	RoomID        uuid.UUID   `json:"room_id" binding:"required"`
-	Content       string      `json:"content" binding:"required"`
-	MessageType   MessageType `json:"message_type,omitempty"`
-	ReplyTo       *uuid.UUID  `json:"reply_to,omitempty"`
-	Metadata      JSONB       `json:"metadata,omitempty"`
+	ApplicationID *uuid.UUID                `json:"application_id,omitempty"`
+	RoomID        uuid.UUID                 `json:"room_id" binding:"required"`
+	Content       string                    `json:"content,omitempty"`
+	Type          string                    `json:"type,omitempty"` // "TEXT" or "MEDIA"
+	MessageType   MessageType               `json:"message_type,omitempty"`
+	ReplyTo       *uuid.UUID                `json:"reply_to,omitempty"`
+	Metadata      JSONB                     `json:"metadata,omitempty"`
+	FileRequest   *FileMessageCreateRequest `json:"file_request,omitempty"`
 }
 
 type MessageUpdateRequest struct {
@@ -163,4 +165,18 @@ type ReactionDeleteRequest struct {
 type ReactionListRequest struct {
 	ApplicationID *uuid.UUID `json:"application_id,omitempty"`
 	MessageID     uuid.UUID  `json:"message_id" binding:"required"`
+}
+
+type FileUploadRequest struct {
+	Folder         string                 `form:"folder,omitempty"`
+	FileName       string                 `form:"file_name,omitempty"`
+	Tags           []string               `form:"tags,omitempty"`
+	CustomMetadata map[string]interface{} `form:"custom_metadata,omitempty"`
+}
+
+type FileMessageCreateRequest struct {
+	Filename string `json:"filename" binding:"omitempty"`
+	FilePath string `json:"file_path" binding:"omitempty"`
+	FileSize int64  `json:"file_size" binding:"omitempty"`
+	MimeType string `json:"mime_type" binding:"omitempty"`
 }

@@ -53,12 +53,12 @@ func NewHub() *Hub {
 		Broadcast: make(chan struct {
 			RoomID  string
 			Message MessageStruct
-		}),
+		}, 100),
 		PresenceUpdate: make(chan struct {
 			RoomIDs []string
 			UserID  string
 			Status  string
-		}),
+		}, 100),
 	}
 }
 
@@ -217,6 +217,7 @@ func (h *Hub) broadcastToRoom(roomID string, message MessageStruct) {
 				"connection_id": conn.ID,
 				"user_id":       conn.UserID,
 				"room_id":       roomID,
+				"message_type":  message.Type,
 			})
 			go func(c *Connection) {
 				h.mu.Lock()
