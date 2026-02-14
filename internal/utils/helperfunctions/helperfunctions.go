@@ -1,18 +1,27 @@
 package helperfunctions
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
+	"mime/multipart"
+	"os"
+	"strings"
 	"time"
 
 	"chat-app/internal/database"
 	"chat-app/internal/models"
+	"chat-app/vault-ai/library/tika"
 	"crypto/rand"
 	"encoding/base64"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/pgvector/pgvector-go"
+	"github.com/sashabaranov/go-openai"
 )
 
 func CreateUser(ctx *gin.Context, db *database.DB, user *models.User, appID string) error {
@@ -488,4 +497,218 @@ func SaveFileToDB(ctx *gin.Context, db *database.DB, file *models.File) (*models
 	}
 
 	return file, nil
+}
+
+func ProcessDocument(documentID uuid.UUID, userId uuid.UUID, fileType, fileTitle string, chunks []models.Chunk, db *database.DB) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Goroutine panicked while processing document %s: %v", documentID.String(), r)
+		}
+	}()
+
+	// Generate embeddings
+	_, err := GenerateEmbeddingOfChunks(&chunks)
+	if err != nil {
+		log.Printf("Error generating embeddings for document %s: %v", documentID.String(), err)
+		return
+	}
+
+	// Create document
+	document := models.Document{
+		ID:        documentID,
+		UserId:    userId,
+		FileType:  fileType,
+		FileName:  fileTitle,
+		CreatedAt: time.Now().Unix(),
+		Chunks:    chunks,
+	}
+
+	// Start transaction
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("Error starting transaction for document %s: %v", documentID.String(), err)
+		return
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			log.Printf("Transaction panicked for document %s: %v", documentID.String(), r)
+		}
+	}()
+
+	// Check for duplicates
+	var existingDoc models.Document
+	query := "select * from documents where id = ?"
+	err = tx.QueryRow(query, documentID).Scan(&existingDoc)
+	if err == nil {
+		tx.Rollback()
+		log.Printf("Document %s already exists, skipping upload", documentID.String())
+		return
+	}
+
+	// Insert document
+	query = "insert into documents (id, user_id, file_type, file_name, uploaded_at) values (?, ?, ?, ?, ?)"
+	err = tx.QueryRow(query, document.ID, document.UserId, document.FileType, document.FileName, document.CreatedAt).Scan(&models.Document{})
+	if err != nil {
+		tx.Rollback()
+		log.Printf("Error inserting document %s: %v", documentID.String(), err)
+		return
+	}
+
+	// Commit
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit transaction for document %s: %v", documentID.String(), err)
+		return
+	}
+
+	log.Printf("Successfully processed document: %s", documentID.String())
+}
+
+func ConvertToChunks(fileHeader *multipart.FileHeader, fileType string, documentID uuid.UUID) ([]models.Chunk, error) {
+	log.Printf("Started extracting text from file")
+
+	// Extract text
+	fullText, err := ExtractTextFromFile(fileHeader, fileType)
+	if err != nil {
+		return nil, fmt.Errorf("text extraction failed: %w", err)
+	}
+
+	if strings.TrimSpace(fullText) == "" {
+		return nil, fmt.Errorf("no text content found in file")
+	}
+
+	log.Printf("Extracted %d characters from file", len(fullText))
+
+	// Split into chunks (8000 chars ≈ 2000 tokens)
+	textChunks := SplitIntoTextChunks(fullText, 8000)
+
+	var chunks []models.Chunk
+	for i, textChunk := range textChunks {
+		chunks = append(chunks, models.Chunk{
+			ID:         uuid.New(),
+			DocumentID: documentID,
+			Content:    textChunk,
+			ChunkIndex: i + 1,
+		})
+	}
+
+	log.Printf("Created %d chunks from file", len(chunks))
+	return chunks, nil
+}
+
+func GenerateEmbeddingOfChunks(chunks *[]models.Chunk) (*[]models.Chunk, error) {
+	log.Printf("Started generating embeddings for %d chunks", len(*chunks))
+
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("OPENAI_API_KEY environment variable not set")
+	}
+
+	client := openai.NewClient(apiKey)
+
+	for i, chunk := range *chunks {
+		if strings.TrimSpace(chunk.Content) == "" {
+			log.Printf("Skipping empty chunk %d", i+1)
+			continue
+		}
+
+		resp, err := client.CreateEmbeddings(
+			context.Background(),
+			openai.EmbeddingRequest{
+				Input: []string{chunk.Content},
+				Model: openai.SmallEmbedding3,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create embedding for chunk %d: %w", i+1, err)
+		}
+
+		if len(resp.Data) == 0 {
+			return nil, fmt.Errorf("no embedding data returned for chunk %d", i+1)
+		}
+
+		embedding := pgvector.NewVector(resp.Data[0].Embedding)
+		(*chunks)[i].Embedding = embedding
+
+		log.Printf("Generated embedding for chunk %d/%d", i+1, len(*chunks))
+	}
+
+	log.Printf("Successfully generated embeddings for all chunks")
+	return chunks, nil
+}
+
+// ExtractTextFromFile extracts text using Apache Tika
+// Tika supports PDF, DOCX, XLSX, PPTX, images with OCR, and many more formats
+func ExtractTextFromFile(fileHeader *multipart.FileHeader, fileType string) (string, error) {
+	// Initialize Tika client
+	tikaClient := tika.NewClient()
+
+	// Check Tika server health
+	if err := tikaClient.HealthCheck(); err != nil {
+		log.Printf("Warning: Tika server health check failed: %v", err)
+		return "", fmt.Errorf("tika server is not available: %w", err)
+	}
+
+	// Extract text using Tika
+	extractedText, err := tikaClient.ExtractText(fileHeader)
+	if err != nil {
+		return "", fmt.Errorf("tika text extraction failed: %w", err)
+	}
+
+	// Trim whitespace
+	extractedText = strings.TrimSpace(extractedText)
+
+	if extractedText == "" {
+		return "", fmt.Errorf("no text could be extracted from file")
+	}
+
+	log.Printf("Successfully extracted %d characters from file using Tika", len(extractedText))
+	return extractedText, nil
+}
+
+func SplitIntoTextChunks(text string, maxCharsPerChunk int) []string {
+	sentences := SplitIntoSentences(text)
+	var chunks []string
+	currentChunk := ""
+
+	for _, sentence := range sentences {
+		// If adding this sentence exceeds limit, save current chunk
+		if len(currentChunk)+len(sentence)+1 > maxCharsPerChunk && currentChunk != "" {
+			chunks = append(chunks, strings.TrimSpace(currentChunk))
+			currentChunk = sentence
+		} else {
+			if currentChunk == "" {
+				currentChunk = sentence
+			} else {
+				currentChunk += " " + sentence
+			}
+		}
+	}
+
+	// Add final chunk
+	if strings.TrimSpace(currentChunk) != "" {
+		chunks = append(chunks, strings.TrimSpace(currentChunk))
+	}
+
+	return chunks
+}
+
+func SplitIntoSentences(text string) []string {
+	// Split on multiple delimiters
+	text = strings.ReplaceAll(text, "! ", "!|")
+	text = strings.ReplaceAll(text, "? ", "?|")
+	text = strings.ReplaceAll(text, ". ", ".|")
+
+	sentences := strings.Split(text, "|")
+	var result []string
+
+	for _, sentence := range sentences {
+		sentence = strings.TrimSpace(sentence)
+		if sentence != "" && len(sentence) > 3 { // Ignore very short fragments
+			result = append(result, sentence)
+		}
+	}
+
+	return result
 }

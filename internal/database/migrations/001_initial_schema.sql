@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS applications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -136,6 +137,50 @@ CREATE TABLE IF NOT EXISTS typing_indicators (
 
 CREATE INDEX idx_typing_indicators_room_id ON typing_indicators(room_id);
 CREATE INDEX idx_typing_indicators_expires_at ON typing_indicators(expires_at);
+
+CREATE TABLE IF NOT EXISTS ai_chat_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX idx_ai_chat_sessions_user_id ON ai_chat_sessions(user_id);
+CREATE INDEX idx_ai_chat_sessions_deleted_at ON ai_chat_sessions(deleted_at);
+
+CREATE TABLE IF NOT EXISTS ai_chat_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    session_id UUID NOT NULL REFERENCES ai_chat_sessions(id) ON DELETE CASCADE,
+    role VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX idx_ai_chat_messages_session_id ON ai_chat_messages(session_id);
+CREATE INDEX idx_ai_chat_messages_deleted_at ON ai_chat_messages(deleted_at);
+
+CREATE TABLE IF NOT EXISTS documents(
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    file_name VARCHAR(50) NOT NULL,
+    file_type VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents (created_at);
+
+CREATE TABLE IF NOT EXISTS chunks(
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    content VARCHAR(50),
+    chunk_index int NOT NULL,
+    embedding VECTOR(1536)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON chunks (document_id);
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$

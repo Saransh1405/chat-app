@@ -15,6 +15,11 @@ require (
 )
 
 require (
+	github.com/pgvector/pgvector-go v0.3.0 // indirect
+	github.com/sashabaranov/go-openai v1.41.2 // indirect
+)
+
+require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/eapache/go-resiliency v1.7.0 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20230731223053-c322873962e3 // indirect

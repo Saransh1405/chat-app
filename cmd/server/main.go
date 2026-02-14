@@ -16,6 +16,8 @@ import (
 	imagekit "chat-app/internal/image-kit"
 	"chat-app/internal/middleware"
 	"chat-app/internal/utils/logger"
+	"chat-app/vault-ai/handler/answer"
+	"chat-app/vault-ai/handler/uploadFile"
 
 	"github.com/gin-gonic/gin"
 )
@@ -176,6 +178,21 @@ func main() {
 			typing := protected.Group("/typing")
 			{
 				typing.POST("", typingHandler.Create)
+			}
+
+			fileHandler := uploadFile.NewUploadFileHandler(db)
+			files := protected.Group("/upload")
+			{
+				files.POST("", fileHandler.UploadFile)
+				files.DELETE("", fileHandler.DeleteFile)
+				files.GET("", fileHandler.GetFile)
+			}
+
+			answerHandler := answer.NewAnswerHandler(db)
+			answers := protected.Group("/answer")
+			{
+				answers.POST("", answerHandler.Answer)
+				answers.GET("/stream", answerHandler.StreamAnswer)
 			}
 		}
 
