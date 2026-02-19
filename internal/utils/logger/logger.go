@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// LogLevel represents the logging level
 type LogLevel int
 
 const (
@@ -25,12 +24,9 @@ var (
 	logger       *log.Logger
 )
 
-// Fields represents structured log fields
 type Fields map[string]interface{}
 
-// Initialize sets up the logger with the specified level
 func Initialize(level string, format string) {
-	// Parse log level
 	switch strings.ToUpper(level) {
 	case "DEBUG":
 		currentLevel = DEBUG
@@ -46,16 +42,13 @@ func Initialize(level string, format string) {
 		currentLevel = INFO
 	}
 
-	// Set up logger output
 	logger = log.New(os.Stdout, "", 0)
 }
 
-// shouldLog checks if the given level should be logged
 func shouldLog(level LogLevel) bool {
 	return level >= currentLevel
 }
 
-// formatMessage formats the log message with fields
 func formatMessage(level string, msg string, fields Fields) string {
 	timestamp := time.Now().UTC().Format(time.RFC3339)
 
@@ -75,21 +68,18 @@ func formatMessage(level string, msg string, fields Fields) string {
 	return strings.Join(parts, " ")
 }
 
-// getCallerInfo gets the file and line number of the caller
 func getCallerInfo() (string, int) {
 	_, file, line, ok := runtime.Caller(3)
 	if !ok {
 		return "unknown", 0
 	}
 
-	// Extract just the filename
 	parts := strings.Split(file, "/")
 	filename := parts[len(parts)-1]
 
 	return filename, line
 }
 
-// Debug logs a debug message
 func Debug(msg string, fields ...Fields) {
 	if !shouldLog(DEBUG) {
 		return
@@ -108,7 +98,6 @@ func Debug(msg string, fields ...Fields) {
 	logger.Println(formatMessage("DEBUG", msg, f))
 }
 
-// Info logs an info message
 func Info(msg string, fields ...Fields) {
 	if !shouldLog(INFO) {
 		return
@@ -127,7 +116,6 @@ func Info(msg string, fields ...Fields) {
 	logger.Println(formatMessage("INFO", msg, f))
 }
 
-// Warn logs a warning message
 func Warn(msg string, fields ...Fields) {
 	if !shouldLog(WARN) {
 		return
@@ -146,7 +134,6 @@ func Warn(msg string, fields ...Fields) {
 	logger.Println(formatMessage("WARN", msg, f))
 }
 
-// Error logs an error message
 func Error(msg string, err error, fields ...Fields) {
 	if !shouldLog(ERROR) {
 		return
@@ -169,7 +156,6 @@ func Error(msg string, err error, fields ...Fields) {
 	logger.Println(formatMessage("ERROR", msg, f))
 }
 
-// Fatal logs a fatal message and exits
 func Fatal(msg string, err error, fields ...Fields) {
 	var f Fields
 	if len(fields) > 0 {
@@ -189,12 +175,10 @@ func Fatal(msg string, err error, fields ...Fields) {
 	os.Exit(1)
 }
 
-// WithFields creates a new logger instance with fields
 func WithFields(fields Fields) *Entry {
 	return &Entry{fields: fields}
 }
 
-// Entry represents a logger entry with fields
 type Entry struct {
 	fields Fields
 }
@@ -219,9 +203,6 @@ func (e *Entry) Fatal(msg string, err error) {
 	Fatal(msg, err, e.fields)
 }
 
-// Helper functions for common logging patterns
-
-// LogRequest logs an HTTP request
 func LogRequest(method, path, clientIP string, statusCode int, latency time.Duration, fields ...Fields) {
 	var f Fields
 	if len(fields) > 0 {
@@ -245,7 +226,6 @@ func LogRequest(method, path, clientIP string, statusCode int, latency time.Dura
 	}
 }
 
-// LogDatabaseOperation logs a database operation
 func LogDatabaseOperation(operation, table string, err error, duration time.Duration, fields ...Fields) {
 	var f Fields
 	if len(fields) > 0 {
@@ -265,7 +245,6 @@ func LogDatabaseOperation(operation, table string, err error, duration time.Dura
 	}
 }
 
-// LogWebSocketEvent logs a WebSocket event
 func LogWebSocketEvent(eventType, userID, roomID string, fields ...Fields) {
 	var f Fields
 	if len(fields) > 0 {
@@ -283,7 +262,6 @@ func LogWebSocketEvent(eventType, userID, roomID string, fields ...Fields) {
 	Info(fmt.Sprintf("WebSocket event: %s", eventType), f)
 }
 
-// LogAuthEvent logs an authentication event
 func LogAuthEvent(eventType, userID string, success bool, fields ...Fields) {
 	var f Fields
 	if len(fields) > 0 {

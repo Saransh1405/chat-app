@@ -42,18 +42,14 @@ func (ah *AnswerHandler) StreamAnswer(c *gin.Context) {
 		return
 	}
 
-	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("Access-Control-Allow-Origin", "*")
 
-	// Create channel for this session's AI response
 	responseChan := make(chan string, 100)
 	GlobalBroadcaster.RegisterClient(sessionID, responseChan)
 	defer GlobalBroadcaster.UnRegisterClient(sessionID, responseChan)
-
-	// Stream responses
 	for {
 		select {
 		case chunk := <-responseChan:

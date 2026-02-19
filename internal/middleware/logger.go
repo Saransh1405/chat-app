@@ -14,7 +14,6 @@ func Logger() gin.HandlerFunc {
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery
 
-		// Store request ID in context for tracing
 		requestID := c.GetHeader("X-Request-ID")
 		if requestID == "" {
 			requestID = c.GetHeader("X-Request-Id")
@@ -39,12 +38,10 @@ func Logger() gin.HandlerFunc {
 			"user_agent": c.Request.UserAgent(),
 		}
 
-		// Add user ID if available
 		if userID, exists := c.Get("user_id"); exists {
 			fields["user_id"] = userID
 		}
 
-		// Add error details if any
 		if len(c.Errors) > 0 {
 			fields["errors"] = c.Errors.String()
 		}

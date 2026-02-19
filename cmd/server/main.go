@@ -30,7 +30,6 @@ func main() {
 		})
 	}
 
-	// Initialize logger
 	logger.Initialize(cfg.Logging.Level, cfg.Logging.Format)
 	logger.Info("Logger initialized", logger.Fields{
 		"level":  cfg.Logging.Level,
@@ -193,13 +192,13 @@ func main() {
 			{
 				answers.POST("", answerHandler.Answer)
 				answers.GET("/stream", answerHandler.StreamAnswer)
+				answers.GET("/history", answerHandler.GetHistory)
 			}
 		}
 
 		wsHandler := websocket.NewHandler(wsHub, cfg, db)
 		ws := v1.Group("/ws")
 		{
-			// WebSocket handler handles authentication internally (supports token in query param)
 			ws.GET("", wsHandler.HandleConnection)
 		}
 	}

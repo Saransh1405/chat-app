@@ -13,7 +13,6 @@ import (
 )
 
 func SearchRelevantChunks(ctx context.Context, question string, userId uuid.UUID, limit int, db *database.DB) ([]models.Chunk, error) {
-	// 1. Generate embedding for the question
 	log.Printf("Started generating embedding for the question")
 
 	apiKey := os.Getenv("OPENAI_API_KEY")
@@ -40,17 +39,36 @@ func SearchRelevantChunks(ctx context.Context, question string, userId uuid.UUID
 
 	log.Printf("Generated embedding for the question")
 
-	// 2. Search similar chunks in PostgreSQL
 	var chunks []models.Chunk
-	query := `SELECT * FROM chunks c
+	query := `SELECT c.id, c.document_id, c.content, c.chunk_index, c.embedding, d.file_name 
+	     FROM chunks c
 		 INNER JOIN documents d ON c.document_id = d.id
-		 WHERE d.user_id = ?
-		 ORDER BY c.embedding <=> ?
-		 LIMIT ?`
+		 WHERE d.user_id = $1
+		 ORDER BY c.embedding <=> $2
+		 LIMIT $3`
 
-	err = db.QueryRow(query, userId, resp.Data[0].Embedding, limit).Scan(&chunks)
+	rows, err := db.Query(query, userId, resp.Data[0].Embedding, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search relevant chunks: %w", err)
 	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var chunk models.Chunk
+		if err := rows.Scan(&chunk.ID, &chunk.DocumentID, &chunk.Content, &chunk.ChunkIndex, &chunk.Embedding, &chunk.Source); err != nil {
+			log.Printf("Error scanning chunk row: %v", err)
+			continue
+		}
+		chunks = append(chunks, chunk)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating chunks: %w", err)
+	}
+
+	if chunks == nil {
+		chunks = []models.Chunk{}
+	}
+
 	return chunks, nil
 }

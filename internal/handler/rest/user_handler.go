@@ -657,7 +657,7 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 	var users []models.User
 	for rows.Next() {
 		var user models.User
-		var appID *uuid.UUID // Use pointer for nullable application_id
+		var appID *uuid.UUID 
 		err := rows.Scan(
 			&user.ID,
 			&appID,

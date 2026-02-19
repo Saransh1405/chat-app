@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	"chat-app/internal/database"
 	"chat-app/internal/models"
@@ -30,30 +31,38 @@ func (fh *UploadFileHandler) UploadFile(c *gin.Context) {
 		return
 	}
 
-	userId, ok := userIDStr.(uuid.UUID)
-	if !ok {
+	userId, err := uuid.Parse(userIDStr.(string))
+	if err != nil {
 		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
 			"Invalid user ID format in token", nil)
 		return
 	}
 
-	// Parse metadata
 	fileType := c.PostForm("type")
 	fileTitle := c.PostForm("title")
+	fileSizeStr := c.PostForm("file_size")
 
-	// Parse file
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(400, gin.H{"error": "file is required"})
 		return
 	}
 
-	log.Printf("Processing file: %s (type: %s)", fileTitle, fileType)
+	var fileSize int64
+	if fileSizeStr != "" {
+		if parsedSize, err := strconv.ParseInt(fileSizeStr, 10, 64); err == nil {
+			fileSize = parsedSize
+		} else {
+			fileSize = file.Size
+		}
+	} else {
+		fileSize = file.Size
+	}
 
-	// Generate document ID
+	log.Printf("Processing file: %s (type: %s, size: %d bytes)", fileTitle, fileType, fileSize)
+
 	newUUID := uuid.New()
 
-	// Create chunks from file
 	chunks, err := helperfunctions.ConvertToChunks(file, fileType, newUUID)
 	if err != nil {
 		log.Printf("Error creating chunks: %v", err)
@@ -61,22 +70,19 @@ func (fh *UploadFileHandler) UploadFile(c *gin.Context) {
 		return
 	}
 
-	// Validate chunks before processing
 	if len(chunks) == 0 {
 		c.JSON(400, gin.H{"error": "No content extracted from file"})
 		return
 	}
 
-	// Return immediate success response
 	c.JSON(200, gin.H{
 		"message":     "File upload initiated",
 		"document_id": newUUID.String(),
 		"chunks":      len(chunks),
 	})
 
-	// Process in background
 	log.Printf("Starting background processing for document: %s", newUUID.String())
-	go helperfunctions.ProcessDocument(newUUID, userId, fileType, fileTitle, chunks, fh.db)
+	helperfunctions.ProcessDocument(newUUID, userId, fileType, fileTitle, fileSize, chunks, fh.db)
 }
 
 func (f *UploadFileHandler) DeleteFile(c *gin.Context) {
@@ -87,23 +93,27 @@ func (f *UploadFileHandler) DeleteFile(c *gin.Context) {
 		return
 	}
 
-	userId, ok := userIDStr.(uuid.UUID)
-	if !ok {
+	userId, err := uuid.Parse(userIDStr.(string))
+	if err != nil {
 		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
 			"Invalid user ID format in token", nil)
 		return
 	}
 
-	// get the document id from the request
 	documentId := c.Param("id")
+	if documentId == "" {
+		documentId = c.Query("id")
+		if documentId == "" {
+			documentId = c.PostForm("id")
+		}
+	}
 	if documentId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Document ID is required"})
 		return
 	}
 
-	// delete the document from the database
-	query := "delete from documents where user_id = ? AND id = ?"
-	err := f.db.QueryRow(query, userId, documentId).Scan(&models.Document{})
+	query := "delete from documents where user_id = $1 AND id = $2"
+	_, err = f.db.Exec(query, userId, documentId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error deleting document from database"})
 		return
@@ -120,20 +130,55 @@ func (f *UploadFileHandler) GetFile(c *gin.Context) {
 		return
 	}
 
-	userId, ok := userIDStr.(uuid.UUID)
-	if !ok {
+	userId, err := uuid.Parse(userIDStr.(string))
+	if err != nil {
 		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
 			"Invalid user ID format in token", nil)
 		return
 	}
 
-	// get all the document from the database for the user
-	var documents []models.Document
-	query := "select * from documents where user_id = ?"
-	err := f.db.QueryRow(query, userId).Scan(&documents)
+	type DocumentResponse struct {
+		ID         string `json:"id"`
+		UserId     string `json:"user_id"`
+		FileName   string `json:"file_name"`
+		FileType   string `json:"file_type"`
+		FileSize   int64  `json:"file_size"`
+		UploadedAt string `json:"uploaded_at"`
+	}
+
+	var documents []DocumentResponse
+	query := "select id, user_id, file_name, file_type, file_size, created_at from documents where user_id = $1 ORDER BY created_at DESC"
+
+	rows, err := f.db.Query(query, userId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error getting documents from database"})
 		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var doc models.Document
+		if err := rows.Scan(&doc.ID, &doc.UserId, &doc.FileName, &doc.FileType, &doc.FileSize, &doc.CreatedAt); err != nil {
+			log.Printf("Error scanning document row: %v", err)
+			continue
+		}
+		documents = append(documents, DocumentResponse{
+			ID:         doc.ID.String(),
+			UserId:     doc.UserId.String(),
+			FileName:   doc.FileName,
+			FileType:   doc.FileType,
+			FileSize:   doc.FileSize,
+			UploadedAt: doc.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error iterating documents"})
+		return
+	}
+
+	if documents == nil {
+		documents = []DocumentResponse{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"documents": documents})

@@ -17,7 +17,6 @@ func NewSessionManager(db *database.DB) *SessionManager {
 }
 
 func (sm *SessionManager) CreateSession(userId uuid.UUID, firstQuestion string) (*models.ChatSession, error) {
-	// create the user session
 	session := models.ChatSession{
 		UserID: userId,
 		Title:  firstQuestion,
@@ -32,7 +31,6 @@ func (sm *SessionManager) CreateSession(userId uuid.UUID, firstQuestion string) 
 		return nil, err
 	}
 
-	// add user first message
 	userMessage := &models.ChatMessage{
 		SessionID: session.ID,
 		Role:      "user",

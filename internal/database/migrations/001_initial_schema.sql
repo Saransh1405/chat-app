@@ -165,7 +165,7 @@ CREATE INDEX idx_ai_chat_messages_deleted_at ON ai_chat_messages(deleted_at);
 CREATE TABLE IF NOT EXISTS documents(
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    file_name VARCHAR(50) NOT NULL,
+    file_name TEXT NOT NULL,
     file_type VARCHAR(50) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -175,7 +175,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents (created_at);
 CREATE TABLE IF NOT EXISTS chunks(
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    content VARCHAR(50),
+    content TEXT,
     chunk_index int NOT NULL,
     embedding VECTOR(1536)
 );

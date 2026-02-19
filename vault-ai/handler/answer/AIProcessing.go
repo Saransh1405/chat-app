@@ -2,6 +2,7 @@ package answer
 
 import (
 	"bytes"
+	"chat-app/internal/database"
 	"chat-app/internal/models"
 	"chat-app/vault-ai/library/ollama"
 	"context"
@@ -13,13 +14,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"chat-app/internal/database"
 
 	"github.com/google/uuid"
 )
 
 func AIProcessing(ctx context.Context, sessionID uuid.UUID, question string, userID uuid.UUID, db *database.DB) {
-	// 1. Get session with ALL previous messages
 	sessionManager := NewSessionManager(db)
 	_, err := sessionManager.GetSession(userID, sessionID)
 	if err != nil {
@@ -27,16 +26,24 @@ func AIProcessing(ctx context.Context, sessionID uuid.UUID, question string, use
 		return
 	}
 
-	// 2. Load ALL messages (history)
 	var messages []models.ChatMessage
-	query := `SELECT * FROM chat_messages WHERE session_id = $1 ORDER BY timestamp ASC`
-	err = db.QueryRow(query, sessionID).Scan(&messages)
+	historyQuery := `SELECT id, session_id, role, content, timestamp FROM chat_messages WHERE session_id = $1 ORDER BY timestamp ASC`
+	rows, err := db.Query(historyQuery, sessionID)
 	if err != nil {
 		log.Printf("Error loading messages: %v", err)
 		return
 	}
+	defer rows.Close()
 
-	// 3. Build context for llm
+	for rows.Next() {
+		var msg models.ChatMessage
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.Timestamp); err != nil {
+			log.Printf("Error scanning history message: %v", err)
+			continue
+		}
+		messages = append(messages, msg)
+	}
+
 	var ChatCompletionMessage []ollama.OllamaMessage
 
 	for _, msg := range messages {
@@ -52,9 +59,9 @@ func AIProcessing(ctx context.Context, sessionID uuid.UUID, question string, use
 			})
 		}
 	}
-	// get the limit from the environment variable
+
 	limitStr := os.Getenv("SEARCH_RELEVANT_CHUNKS_LIMIT")
-	limit := 10 // default value
+	limit := 10
 	if limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil {
 			limit = parsedLimit
@@ -72,7 +79,11 @@ func AIProcessing(ctx context.Context, sessionID uuid.UUID, question string, use
 	if len(relevantChunks) > 0 {
 		documentContext.WriteString("Relevant information from your documents:\n\n")
 		for i, chunk := range relevantChunks {
-			documentContext.WriteString(fmt.Sprintf("%d. %s\n\n", i+1, chunk.Content))
+			sourceName := chunk.Source
+			if sourceName == "" {
+				sourceName = "Unknown Document"
+			}
+			documentContext.WriteString(fmt.Sprintf("%d. [From: %s] %s\n\n", i+1, sourceName, chunk.Content))
 		}
 	}
 
@@ -82,13 +93,14 @@ func AIProcessing(ctx context.Context, sessionID uuid.UUID, question string, use
 Answer questions based on the user's conversation and their uploaded documents.
 %s
 Use the following context to answer the question:
-If the answer is in the documents, cite them. If not, use your general knowledge.`,
+If the answer is in the documents, cite them using [Source: Document Name] format at the end of the sentence or paragraph.
+If the answer is not in the documents, state that you are using general knowledge.
+Always be concise and helpful.`,
 			documentContext.String()),
 	}
 
 	ChatCompletionMessage = append(ChatCompletionMessage, systemMessage)
 
-	// Create request
 	reqBody := ollama.OllamaRequest{
 		Model:    "llama3.2",
 		Messages: ChatCompletionMessage,
@@ -97,7 +109,6 @@ If the answer is in the documents, cite them. If not, use your general knowledge
 
 	jsonData, _ := json.Marshal(reqBody)
 
-	// Create request
 	resp, err := http.Post("http://localhost:11434/api/chat", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		log.Printf("Error calling Ollama: %v", err)
@@ -108,7 +119,6 @@ If the answer is in the documents, cite them. If not, use your general knowledge
 	var fullResponse strings.Builder
 	decoder := json.NewDecoder(resp.Body)
 
-	// Read streaming response
 	for {
 		var chunk ollama.OllamaResponse
 		if err := decoder.Decode(&chunk); err == io.EOF {
@@ -120,7 +130,6 @@ If the answer is in the documents, cite them. If not, use your general knowledge
 
 		fullResponse.WriteString(chunk.Message.Content)
 
-		// Broadcast to clients
 		GlobalBroadcaster.BroadcastToSession(sessionID, chunk.Message.Content)
 
 		if chunk.Done {
@@ -128,7 +137,6 @@ If the answer is in the documents, cite them. If not, use your general knowledge
 		}
 	}
 
-	// Save response
 	sessionManager.AddMessage(sessionID, "assistant", fullResponse.String())
 	GlobalBroadcaster.BroadcastToSession(sessionID, "[DONE]")
 }

@@ -117,7 +117,6 @@ func CheckIfUserExistsWithEmail(ctx *gin.Context, db *database.DB, user *models.
 		return err
 	}
 
-	// Handle NULL application_id
 	if appIDPtr != nil {
 		user.ApplicationID = *appIDPtr
 	} else {
@@ -126,7 +125,6 @@ func CheckIfUserExistsWithEmail(ctx *gin.Context, db *database.DB, user *models.
 
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &user.Metadata); err != nil {
-			// Metadata parsing error is not critical, continue
 		}
 	}
 
@@ -175,7 +173,6 @@ func CheckIfUserExistsWithUsername(ctx *gin.Context, db *database.DB, user *mode
 		return err
 	}
 
-	// Handle NULL application_id
 	if appIDPtr != nil {
 		user.ApplicationID = *appIDPtr
 	} else {
@@ -184,7 +181,6 @@ func CheckIfUserExistsWithUsername(ctx *gin.Context, db *database.DB, user *mode
 
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &user.Metadata); err != nil {
-			// Metadata parsing error is not critical, continue
 		}
 	}
 
@@ -221,7 +217,6 @@ func GetUserByEmail(ctx *gin.Context, db *database.DB, email string) (*models.Us
 
 	if len(metadataJSON) > 0 {
 		if err := json.Unmarshal(metadataJSON, &user.Metadata); err != nil {
-			// Metadata parsing error is not critical, continue
 		}
 	}
 
@@ -477,10 +472,6 @@ func SaveFileToDB(ctx *gin.Context, db *database.DB, file *models.File) (*models
 
 	now := time.Now()
 
-	// if file.ApplicationID == nil {
-	// 	file.ApplicationID = &uuid.Nil
-	// }
-
 	err := db.QueryRow(query,
 		file.ApplicationID,
 		file.MessageID,
@@ -499,31 +490,29 @@ func SaveFileToDB(ctx *gin.Context, db *database.DB, file *models.File) (*models
 	return file, nil
 }
 
-func ProcessDocument(documentID uuid.UUID, userId uuid.UUID, fileType, fileTitle string, chunks []models.Chunk, db *database.DB) {
+func ProcessDocument(documentID uuid.UUID, userId uuid.UUID, fileType, fileTitle string, fileSize int64, chunks []models.Chunk, db *database.DB) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Goroutine panicked while processing document %s: %v", documentID.String(), r)
 		}
 	}()
 
-	// Generate embeddings
 	_, err := GenerateEmbeddingOfChunks(&chunks)
 	if err != nil {
 		log.Printf("Error generating embeddings for document %s: %v", documentID.String(), err)
 		return
 	}
 
-	// Create document
 	document := models.Document{
 		ID:        documentID,
 		UserId:    userId,
 		FileType:  fileType,
 		FileName:  fileTitle,
-		CreatedAt: time.Now().Unix(),
+		FileSize:  fileSize,
+		CreatedAt: time.Now(),
 		Chunks:    chunks,
 	}
 
-	// Start transaction
 	tx, err := db.Begin()
 	if err != nil {
 		log.Printf("Error starting transaction for document %s: %v", documentID.String(), err)
@@ -537,38 +526,44 @@ func ProcessDocument(documentID uuid.UUID, userId uuid.UUID, fileType, fileTitle
 		}
 	}()
 
-	// Check for duplicates
-	var existingDoc models.Document
-	query := "select * from documents where id = ?"
-	err = tx.QueryRow(query, documentID).Scan(&existingDoc)
-	if err == nil {
+	var count int
+	checkQuery := "select count(*) from documents where id = $1"
+	err = tx.QueryRow(checkQuery, documentID).Scan(&count)
+	if err == nil && count > 0 {
 		tx.Rollback()
 		log.Printf("Document %s already exists, skipping upload", documentID.String())
 		return
 	}
 
-	// Insert document
-	query = "insert into documents (id, user_id, file_type, file_name, uploaded_at) values (?, ?, ?, ?, ?)"
-	err = tx.QueryRow(query, document.ID, document.UserId, document.FileType, document.FileName, document.CreatedAt).Scan(&models.Document{})
+	insertDocQuery := "insert into documents (id, user_id, file_type, file_name, file_size, created_at) values ($1, $2, $3, $4, $5, $6)"
+	_, err = tx.Exec(insertDocQuery, document.ID, document.UserId, document.FileType, document.FileName, document.FileSize, document.CreatedAt)
 	if err != nil {
 		tx.Rollback()
 		log.Printf("Error inserting document %s: %v", documentID.String(), err)
 		return
 	}
 
-	// Commit
+	insertChunkQuery := "insert into chunks (id, document_id, content, chunk_index, embedding) values ($1, $2, $3, $4, $5)"
+	for _, chunk := range document.Chunks {
+		_, err = tx.Exec(insertChunkQuery, chunk.ID, chunk.DocumentID, chunk.Content, chunk.ChunkIndex, chunk.Embedding)
+		if err != nil {
+			tx.Rollback()
+			log.Printf("Error inserting chunk for document %s: %v", documentID.String(), err)
+			return
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		log.Printf("Failed to commit transaction for document %s: %v", documentID.String(), err)
 		return
 	}
 
-	log.Printf("Successfully processed document: %s", documentID.String())
+	log.Printf("Successfully processed document and %d chunks: %s", len(document.Chunks), documentID.String())
 }
 
 func ConvertToChunks(fileHeader *multipart.FileHeader, fileType string, documentID uuid.UUID) ([]models.Chunk, error) {
 	log.Printf("Started extracting text from file")
 
-	// Extract text
 	fullText, err := ExtractTextFromFile(fileHeader, fileType)
 	if err != nil {
 		return nil, fmt.Errorf("text extraction failed: %w", err)
@@ -580,7 +575,6 @@ func ConvertToChunks(fileHeader *multipart.FileHeader, fileType string, document
 
 	log.Printf("Extracted %d characters from file", len(fullText))
 
-	// Split into chunks (8000 chars ≈ 2000 tokens)
 	textChunks := SplitIntoTextChunks(fullText, 8000)
 
 	var chunks []models.Chunk
@@ -638,25 +632,19 @@ func GenerateEmbeddingOfChunks(chunks *[]models.Chunk) (*[]models.Chunk, error) 
 	return chunks, nil
 }
 
-// ExtractTextFromFile extracts text using Apache Tika
-// Tika supports PDF, DOCX, XLSX, PPTX, images with OCR, and many more formats
 func ExtractTextFromFile(fileHeader *multipart.FileHeader, fileType string) (string, error) {
-	// Initialize Tika client
 	tikaClient := tika.NewClient()
 
-	// Check Tika server health
 	if err := tikaClient.HealthCheck(); err != nil {
 		log.Printf("Warning: Tika server health check failed: %v", err)
 		return "", fmt.Errorf("tika server is not available: %w", err)
 	}
 
-	// Extract text using Tika
 	extractedText, err := tikaClient.ExtractText(fileHeader)
 	if err != nil {
 		return "", fmt.Errorf("tika text extraction failed: %w", err)
 	}
 
-	// Trim whitespace
 	extractedText = strings.TrimSpace(extractedText)
 
 	if extractedText == "" {
@@ -673,7 +661,6 @@ func SplitIntoTextChunks(text string, maxCharsPerChunk int) []string {
 	currentChunk := ""
 
 	for _, sentence := range sentences {
-		// If adding this sentence exceeds limit, save current chunk
 		if len(currentChunk)+len(sentence)+1 > maxCharsPerChunk && currentChunk != "" {
 			chunks = append(chunks, strings.TrimSpace(currentChunk))
 			currentChunk = sentence
@@ -686,7 +673,6 @@ func SplitIntoTextChunks(text string, maxCharsPerChunk int) []string {
 		}
 	}
 
-	// Add final chunk
 	if strings.TrimSpace(currentChunk) != "" {
 		chunks = append(chunks, strings.TrimSpace(currentChunk))
 	}
@@ -695,7 +681,6 @@ func SplitIntoTextChunks(text string, maxCharsPerChunk int) []string {
 }
 
 func SplitIntoSentences(text string) []string {
-	// Split on multiple delimiters
 	text = strings.ReplaceAll(text, "! ", "!|")
 	text = strings.ReplaceAll(text, "? ", "?|")
 	text = strings.ReplaceAll(text, ". ", ".|")
@@ -705,7 +690,7 @@ func SplitIntoSentences(text string) []string {
 
 	for _, sentence := range sentences {
 		sentence = strings.TrimSpace(sentence)
-		if sentence != "" && len(sentence) > 3 { // Ignore very short fragments
+		if sentence != "" && len(sentence) > 3 {
 			result = append(result, sentence)
 		}
 	}

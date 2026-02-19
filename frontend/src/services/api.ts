@@ -65,9 +65,15 @@ class ApiClient {
     return res.json();
   }
 
-  async upload<T>(endpoint: string, file: File): Promise<T> {
+  async upload<T>(endpoint: string, file: File, data?: Record<string, string>): Promise<T> {
     const formData = new FormData();
     formData.append("file", file);
+
+    if (data) {
+      Object.entries(data).forEach(([key, value]) => {
+        formData.append(key, value);
+      });
+    }
 
     const res = await fetch(`${BASE_URL}${endpoint}`, {
       method: "POST",
