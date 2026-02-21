@@ -24,6 +24,16 @@ services:
       - ollama_data:/root/.ollama
     restart: unless-stopped
 
+  chat-app:
+    image: saransh76/chat-app:latest
+    container_name: chat-app
+    ports:
+      - "8081:8081"
+    environment:
+      - .env
+    depends_on:
+      - ollama
+
 volumes:
   ollama_data:
 

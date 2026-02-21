@@ -16,7 +16,7 @@ COPY . .
 # Build the application
 # Build a standalone Go binary called 'main' 
 # that can run on any Linux system without external dependencies
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/server
 
 # Final stage
 FROM alpine:latest
