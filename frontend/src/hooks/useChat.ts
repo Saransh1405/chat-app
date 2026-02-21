@@ -32,7 +32,8 @@ export function useChat() {
     if (!activeRoomId) return;
     setIsLoadingMessages(true);
     setTypingUsers([]);
-    messagesAPI.list(activeRoomId).then((data) => {
+    // Load only recent messages for current screen (limit 50, offset 0)
+    messagesAPI.list(activeRoomId, 50, 0).then((data) => {
       setMessages(data);
       setIsLoadingMessages(false);
     });
@@ -179,6 +180,13 @@ export function useChat() {
       });
     });
 
+    const unsubMessageDeleted = wsClient.on("message_deleted", (payload: any) => {
+      console.log("[useChat] Received message_deleted event:", payload);
+      if (payload.room_id === activeRoomId) {
+        setMessages((prev) => prev.filter((msg) => msg.id !== payload.message_id));
+      }
+    });
+
     return () => {
       console.log("[useChat] Cleaning up WebSocket listeners for room:", activeRoomId);
       wsClient.send("unsubscribe", {}, activeRoomId);
@@ -187,6 +195,7 @@ export function useChat() {
       unsubReactionAdded();
       unsubReactionRemoved();
       unsubPresenceUpdate();
+      unsubMessageDeleted();
     };
   }, [activeRoomId, user?.id]);
 
@@ -249,6 +258,29 @@ export function useChat() {
     []
   );
 
+  const deleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!activeRoomId) return;
+      if (!messageId || messageId === "00000000-0000-0000-0000-000000000000") {
+        console.error("[useChat] Invalid message ID for deletion:", messageId);
+        return;
+      }
+      try {
+        console.log("[useChat] Deleting message:", { messageId, activeRoomId, applicationId: user?.application_id });
+        await messagesAPI.delete(messageId, activeRoomId, user?.application_id);
+        // Optimistically remove from local state
+        setMessages((prev) => prev.filter((msg) => msg.id !== messageId));
+      } catch (error) {
+        console.error("[useChat] Failed to delete message:", error);
+        // Reload messages on error
+        messagesAPI.list(activeRoomId, 50, 0).then((data) => {
+          setMessages(data);
+        });
+      }
+    },
+    [activeRoomId, user?.application_id]
+  );
+
   const createRoom = useCallback(async (name: string, type: Room["type"]) => {
     const room = await roomsAPI.create(name, type);
     setRooms((prev) => [...prev, room]);
@@ -270,6 +302,7 @@ export function useChat() {
     sendMessage,
     sendTyping,
     addReaction,
+    deleteMessage,
     createRoom,
   };
 }

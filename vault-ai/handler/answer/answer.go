@@ -4,6 +4,7 @@ import (
 	"chat-app/internal/database"
 	"chat-app/internal/models"
 	"chat-app/internal/utils/errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -57,6 +58,7 @@ func (ah *AnswerHandler) Answer(c *gin.Context) {
 	} else {
 		session, err = sessionManager.CreateSession(userID, req.Question)
 		if err != nil {
+			log.Printf("Error creating session: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 			return
 		}

@@ -16,6 +16,7 @@ export function useKnowledgeBase() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [sessionId, setSessionId] = useState<string | null>(null);
+    const [isTyping, setIsTyping] = useState(false);
     const eventSourceRef = useRef<EventSource | null>(null);
 
     const convertToFrontendMessage = (msg: ChatMessage): Message => {
@@ -111,7 +112,8 @@ export function useKnowledgeBase() {
             }
 
             const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8080/api/v1";
-            const streamUrl = `${baseUrl}/answer/stream?sessionID=${newSessionId}`;
+            const token = localStorage.getItem("access_token");
+            const streamUrl = `${baseUrl}/answer/stream?sessionID=${newSessionId}&token=${encodeURIComponent(token || "")}`;
             console.log("Connecting to SSE stream:", streamUrl);
             const evtSource = new EventSource(streamUrl);
             eventSourceRef.current = evtSource;
@@ -119,14 +121,32 @@ export function useKnowledgeBase() {
             evtSource.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
-                    const chunk = data.content;
+                    
+                    if (data.type === "typing") {
+                        // Show typing indicator
+                        setIsTyping(true);
+                    } else if (data.type === "content") {
+                        // Hide typing indicator and show content
+                        setIsTyping(false);
+                        const chunk = data.content;
 
-                    setMessages(prev => prev.map(msg => {
-                        if (msg.id === tempAiMsgId) {
-                            return { ...msg, content: msg.content + chunk };
-                        }
-                        return msg;
-                    }));
+                        setMessages(prev => prev.map(msg => {
+                            if (msg.id === tempAiMsgId) {
+                                return { ...msg, content: msg.content + chunk };
+                            }
+                            return msg;
+                        }));
+                    } else {
+                        // Backward compatibility: if no type, assume it's content
+                        const chunk = data.content;
+                        setIsTyping(false);
+                        setMessages(prev => prev.map(msg => {
+                            if (msg.id === tempAiMsgId) {
+                                return { ...msg, content: msg.content + chunk };
+                            }
+                            return msg;
+                        }));
+                    }
                 } catch (parseError) {
                     console.error("Error parsing SSE message:", parseError, event.data);
                 }
@@ -157,6 +177,7 @@ export function useKnowledgeBase() {
     return {
         messages,
         isLoading,
+        isTyping,
         sendMessage,
         loadHistory,
         sessionId

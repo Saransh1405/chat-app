@@ -39,8 +39,8 @@ export const messagesAPI = {
     }
   },
 
-  async list(roomId: string): Promise<Message[]> {
-    const res = await api.get<{ messages: Array<Message & { file?: any }> }>(`/messages?room_id=${roomId}`);
+  async list(roomId: string, limit: number = 50, offset: number = 0): Promise<Message[]> {
+    const res = await api.get<{ messages: Array<Message & { file?: any }> }>(`/messages?room_id=${roomId}&limit=${limit}&offset=${offset}`);
     const messages = res.messages ? [...res.messages].reverse() : [];
 
     // Process messages to include file data
@@ -117,6 +117,20 @@ export const messagesAPI = {
 
   async react(messageId: string, emoji: string): Promise<void> {
     await api.post("/reactions", { message_id: messageId, reaction: emoji });
+  },
+
+  async delete(messageId: string, roomId: string, applicationId?: string): Promise<void> {
+    const body: { id: string; room_id: string; application_id?: string } = {
+      id: messageId,
+      room_id: roomId,
+    };
+    
+    // Only include application_id if it's provided and not empty
+    if (applicationId) {
+      body.application_id = applicationId;
+    }
+    
+    await api.delete("/messages", { body });
   },
 
   async uploadImage(roomId: string, file: File): Promise<{ url: string; name: string }> {

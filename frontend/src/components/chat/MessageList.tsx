@@ -8,10 +8,11 @@ interface MessageListProps {
   currentUserId: string;
   isLoading: boolean;
   onReact: (messageId: string, emoji: string) => void;
+  onDelete?: (messageId: string) => void;
   userPresence?: Map<string, 'online' | 'offline'>;
 }
 
-export function MessageList({ messages, currentUserId, isLoading, onReact, userPresence }: MessageListProps) {
+export function MessageList({ messages, currentUserId, isLoading, onReact, onDelete, userPresence }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,6 +53,7 @@ export function MessageList({ messages, currentUserId, isLoading, onReact, userP
             showAvatar={showAvatar}
             currentUserId={currentUserId}
             onReact={onReact}
+            onDelete={onDelete}
             isOnline={isOnline}
           />
         );

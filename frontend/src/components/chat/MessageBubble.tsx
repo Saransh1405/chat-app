@@ -4,7 +4,7 @@ import { UserAvatar } from "./UserAvatar";
 import { EmojiPicker } from "./EmojiPicker";
 import type { Message, User } from "@/types/chat";
 import { motion } from "framer-motion";
-import { SmilePlus, File } from "lucide-react";
+import { SmilePlus, File, Trash2 } from "lucide-react";
 
 interface MessageBubbleProps {
     message: Message;
@@ -12,10 +12,11 @@ interface MessageBubbleProps {
     showAvatar: boolean;
     currentUserId: string;
     onReact: (messageId: string, emoji: string) => void;
+    onDelete?: (messageId: string) => void;
     isOnline?: boolean;
 }
 
-export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReact, isOnline }: MessageBubbleProps) {
+export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReact, onDelete, isOnline }: MessageBubbleProps) {
     const sender = message.user;
     const time = message.created_at ? format(new Date(message.created_at), "h:mm a") : "";
 
@@ -68,7 +69,19 @@ export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReac
                             : "bg-bubble-other text-bubble-other-foreground rounded-tl-md"
                     )}
                 >
-                    {displayContent && <p className="whitespace-pre-wrap">{displayContent}</p>}
+                    {displayContent ? (
+                        <p className="whitespace-pre-wrap">{displayContent}</p>
+                    ) : !isMe && message.user_id === "ai-assistant" ? (
+                        <div className="flex items-center gap-1 py-1">
+                            {[0, 1, 2].map((i) => (
+                                <span
+                                    key={i}
+                                    className="inline-block h-2 w-2 rounded-full bg-muted-foreground/50 animate-typing-dot"
+                                    style={{ animationDelay: `${i * 0.2}s` }}
+                                />
+                            ))}
+                        </div>
+                    ) : null}
 
                     {citations.length > 0 && (
                         <div className="mt-3 pt-2 border-t border-border/20">
@@ -164,8 +177,8 @@ export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReac
 
                     <div
                         className={cn(
-                            "absolute top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100",
-                            isMe ? "-left-8" : "-right-8"
+                            "absolute top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 flex gap-1",
+                            isMe ? "-left-12" : "-right-12"
                         )}
                     >
                         <EmojiPicker
@@ -176,6 +189,19 @@ export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReac
                                 </button>
                             }
                         />
+                        {isMe && onDelete && (
+                            <button
+                                onClick={() => {
+                                    if (confirm("Are you sure you want to delete this message?")) {
+                                        onDelete(message.id);
+                                    }
+                                }}
+                                className="flex h-6 w-6 items-center justify-center rounded-full bg-destructive/10 text-destructive shadow-sm hover:bg-destructive/20"
+                                title="Delete message"
+                            >
+                                <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                        )}
                     </div>
                 </div>
 

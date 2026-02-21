@@ -930,20 +930,48 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	if req.ID == uuid.Nil {
+		logger.Warn("Delete message request with invalid message ID", logger.Fields{
+			"message_id": req.ID,
+			"room_id":    req.RoomID,
+			"app_id":     req.ApplicationID,
+		})
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Message ID is required and must be a valid UUID", nil)
+		return
+	}
+
+	if req.RoomID == uuid.Nil {
+		logger.Warn("Delete message request with invalid room ID", logger.Fields{
+			"message_id": req.ID,
+			"room_id":    req.RoomID,
+			"app_id":     req.ApplicationID,
+		})
+		errors.RespondWithError(c, http.StatusBadRequest, errors.ErrCodeValidationError,
+			"Room ID is required and must be a valid UUID", nil)
+		return
+	}
+
 	appID := req.ApplicationID
 	var checkQuery string
 	var existingUserID uuid.UUID
 
-	if appID == nil {
-		checkQuery = `SELECT m.user_id FROM messages m
-		               WHERE m.id = $1 AND m.room_id = $2 AND m.deleted_at IS NULL`
-		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID).Scan(&existingUserID)
-	} else {
-		checkQuery = `SELECT m.user_id FROM messages m
-		               INNER JOIN rooms r ON m.room_id = r.id
-		               WHERE m.id = $1 AND m.room_id = $2 AND r.application_id = $3 AND m.deleted_at IS NULL`
-		err = h.db.QueryRow(checkQuery, req.ID, req.RoomID, *appID).Scan(&existingUserID)
+	checkQuery = `SELECT m.user_id FROM messages m
+	               WHERE m.id = $1 AND m.room_id = $2 AND m.deleted_at IS NULL`
+	err = h.db.QueryRow(checkQuery, req.ID, req.RoomID).Scan(&existingUserID)
+
+	if err == nil && appID != nil {
+		var roomAppID uuid.UUID
+		verifyQuery := `SELECT r.application_id FROM rooms r WHERE r.id = $1`
+		if verifyErr := h.db.QueryRow(verifyQuery, req.RoomID).Scan(&roomAppID); verifyErr == nil {
+			if roomAppID != *appID {
+				errors.RespondWithError(c, http.StatusForbidden, errors.ErrCodeForbidden,
+					"Application ID does not match the room's application", nil)
+				return
+			}
+		}
 	}
+
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errors.RespondWithError(c, http.StatusNotFound, errors.ErrCodeNotFound,
@@ -999,6 +1027,35 @@ func (h *MessageHandler) Delete(c *gin.Context) {
 			"Message not found", nil)
 		return
 	}
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Panic in WebSocket message deletion broadcast", fmt.Errorf("%v", r), logger.Fields{
+					"room_id":    req.RoomID.String(),
+					"message_id": req.ID.String(),
+				})
+			}
+		}()
+
+		h.wsHub.Broadcast <- struct {
+			RoomID  string
+			Message websocket.MessageStruct
+		}{
+			RoomID: req.RoomID.String(),
+			Message: websocket.MessageStruct{
+				Type: "message_deleted",
+				Payload: map[string]interface{}{
+					"message_id": req.ID,
+					"room_id":    req.RoomID,
+				},
+			},
+		}
+		logger.Debug("Message deletion broadcasted via WebSocket", logger.Fields{
+			"room_id":    req.RoomID.String(),
+			"message_id": req.ID.String(),
+		})
+	}()
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Message deleted successfully",

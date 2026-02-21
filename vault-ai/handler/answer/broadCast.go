@@ -3,6 +3,8 @@ package answer
 import (
 	"sync"
 
+	"fmt"
+
 	"github.com/google/uuid"
 )
 
@@ -43,6 +45,8 @@ func (sb *SessionBroadcaster) UnRegisterClient(session uuid.UUID, ch chan string
 func (sb *SessionBroadcaster) BroadcastToSession(session uuid.UUID, message string) {
 	sb.mutex.RLock()
 	defer sb.mutex.RUnlock()
+
+	fmt.Println("Broadcasting message to session: ", session)
 
 	clients := sb.Clients[session]
 	for _, ch := range clients {

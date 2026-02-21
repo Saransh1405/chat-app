@@ -2,9 +2,11 @@ package answer
 
 import (
 	"chat-app/internal/utils/errors"
+	"chat-app/internal/utils/jwt"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,19 +14,29 @@ import (
 )
 
 func (ah *AnswerHandler) StreamAnswer(c *gin.Context) {
-	userIDStr, exists := c.Get("user_id")
-	if !exists || userIDStr == "" {
+	jwtSecret := os.Getenv("JWT_SECRET")
+	token := c.Query("token")
+	if token == "" {
 		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
-			"User ID not found in token", nil)
+			"Token is required", nil)
 		return
 	}
 
-	userID, ok := userIDStr.(uuid.UUID)
-	if !ok {
+	claims, err := jwt.ValidateToken(token, jwtSecret)
+	if err != nil {
+		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
+			"Invalid token", nil)
+		return
+	}
+
+	userId := claims.UserID
+	userID, err := uuid.Parse(userId)
+	if err != nil {
 		errors.RespondWithError(c, http.StatusUnauthorized, errors.ErrCodeUnauthorized,
 			"Invalid user ID format in token", nil)
 		return
 	}
+
 	sessionID, err := uuid.Parse(c.Query("sessionID"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session ID"})
@@ -57,11 +69,23 @@ func (ah *AnswerHandler) StreamAnswer(c *gin.Context) {
 				return
 			}
 
-			data := map[string]interface{}{
-				"content":   chunk,
-				"sessionId": sessionID,
-				"timestamp": time.Now(),
+			var data map[string]interface{}
+			if chunk == "[TYPING]" {
+				data = map[string]interface{}{
+					"type":      "typing",
+					"sessionId": sessionID,
+					"timestamp": time.Now(),
+				}
+			} else {
+				data = map[string]interface{}{
+					"type":      "content",
+					"content":   chunk,
+					"sessionId": sessionID,
+					"timestamp": time.Now(),
+				}
 			}
+
+			fmt.Println("data: ", data)
 
 			jsonData, _ := json.Marshal(data)
 			fmt.Fprintf(c.Writer, "data: %s\n\n", jsonData)

@@ -191,11 +191,15 @@ func main() {
 			answers := protected.Group("/answer")
 			{
 				answers.POST("", answerHandler.Answer)
-				answers.GET("/stream", answerHandler.StreamAnswer)
 				answers.GET("/history", answerHandler.GetHistory)
 			}
 		}
 
+		answerHandler := answer.NewAnswerHandler(db)
+		answerStream := v1.Group("/answer")
+		{
+			answerStream.GET("/stream", answerHandler.StreamAnswer)
+		}
 		wsHandler := websocket.NewHandler(wsHub, cfg, db)
 		ws := v1.Group("/ws")
 		{

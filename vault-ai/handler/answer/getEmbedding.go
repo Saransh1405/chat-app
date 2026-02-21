@@ -9,7 +9,8 @@ import (
 	"os"
 
 	"github.com/google/uuid"
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/pgvector/pgvector-go"
+	"github.com/sashabaranov/go-openai"
 )
 
 func SearchRelevantChunks(ctx context.Context, question string, userId uuid.UUID, limit int, db *database.DB) ([]models.Chunk, error) {
@@ -37,7 +38,21 @@ func SearchRelevantChunks(ctx context.Context, question string, userId uuid.UUID
 		return nil, fmt.Errorf("no embedding data returned for the question")
 	}
 
-	log.Printf("Generated embedding for the question")
+	emd := resp.Data[0].Embedding
+
+	// emd, err := GetDeepSeekEmbedding(question)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to get embedding for the question: %w", err)
+	// }
+
+	// log.Printf("Generated embedding for the question")
+
+	// emdFloat32 := make([]float32, len(emd))
+	// for i, v := range emd {
+	// 	emdFloat32[i] = float32(v)
+	// }
+
+	embedding := pgvector.NewVector(emd)
 
 	var chunks []models.Chunk
 	query := `SELECT c.id, c.document_id, c.content, c.chunk_index, c.embedding, d.file_name 
@@ -47,7 +62,7 @@ func SearchRelevantChunks(ctx context.Context, question string, userId uuid.UUID
 		 ORDER BY c.embedding <=> $2
 		 LIMIT $3`
 
-	rows, err := db.Query(query, userId, resp.Data[0].Embedding, limit)
+	rows, err := db.Query(query, userId, embedding, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search relevant chunks: %w", err)
 	}

@@ -38,8 +38,9 @@ export function InviteDialog({ roomId, roomName }: InviteDialogProps) {
 
   const handleInvite = async (user: User) => {
     try {
-      await roomsAPI.invite(roomId, user.email);
+      await roomsAPI.invite(roomId, user.id);
       toast.success(`Invited ${user.username} to ${roomName}`);
+      setOpen(false);
     } catch {
       toast.error("Failed to send invite");
     }

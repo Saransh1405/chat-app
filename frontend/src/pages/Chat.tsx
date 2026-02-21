@@ -25,12 +25,14 @@ const Chat = () => {
         sendMessage: sendChatMessage,
         sendTyping,
         addReaction,
+        deleteMessage,
         createRoom,
     } = useChat();
 
     const {
         messages: kbMessages,
         isLoading: isKbLoading,
+        isTyping: isKbTyping,
         sendMessage: sendKbMessage,
     } = useKnowledgeBase();
 
@@ -64,10 +66,27 @@ const Chat = () => {
                     currentUserId={user?.id || "user-1"}
                     isLoading={isLoading}
                     onReact={mode === "chat" ? addReaction : () => { }}
+                    onDelete={mode === "chat" ? deleteMessage : undefined}
                     userPresence={mode === "chat" ? userPresence : undefined}
                 />
 
                 {mode === "chat" && <TypingIndicator typingUsers={typingUsers} />}
+                {mode === "knowledge_base" && isKbTyping && (
+                    <div className="px-4 py-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <div className="flex gap-0.5">
+                                {[0, 1, 2].map((i) => (
+                                    <span
+                                        key={i}
+                                        className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-typing-dot"
+                                        style={{ animationDelay: `${i * 0.2}s` }}
+                                    />
+                                ))}
+                            </div>
+                            <span>AI Assistant is thinking...</span>
+                        </div>
+                    </div>
+                )}
 
                 <MessageInput
                     onSend={mode === "chat" ? sendChatMessage : (content) => sendKbMessage(content)}

@@ -56,10 +56,11 @@ class ApiClient {
     return res.json();
   }
 
-  async delete<T>(endpoint: string): Promise<T> {
+  async delete<T>(endpoint: string, options?: { body?: unknown }): Promise<T> {
     const res = await fetch(`${BASE_URL}${endpoint}`, {
       method: "DELETE",
       headers: this.getHeaders(),
+      body: options?.body ? JSON.stringify(options.body) : undefined,
     });
     if (!res.ok) throw new Error(`DELETE ${endpoint} failed: ${res.statusText}`);
     return res.json();

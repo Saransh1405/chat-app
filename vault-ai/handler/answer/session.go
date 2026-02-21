@@ -3,6 +3,7 @@ package answer
 import (
 	"chat-app/internal/database"
 	"chat-app/internal/models"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,7 +23,7 @@ func (sm *SessionManager) CreateSession(userId uuid.UUID, firstQuestion string) 
 		Title:  firstQuestion,
 	}
 
-	query := `INSERT INTO chat_sessions (user_id, title, created_at, updated_at)
+	query := `INSERT INTO ai_chat_sessions (user_id, title, created_at, updated_at)
 	          VALUES ($1, $2, $3, $4)
 	          RETURNING id, created_at, updated_at`
 
@@ -35,10 +36,10 @@ func (sm *SessionManager) CreateSession(userId uuid.UUID, firstQuestion string) 
 		SessionID: session.ID,
 		Role:      "user",
 		Content:   firstQuestion,
-		Timestamp: time.Now().UnixMilli(),
+		Timestamp: time.Now(),
 	}
 
-	messageQuery := `INSERT INTO chat_messages (session_id, role, content, timestamp)
+	messageQuery := `INSERT INTO ai_chat_messages (session_id, role, content, timestamp)
 	          VALUES ($1, $2, $3, $4)
 	          RETURNING id`
 
@@ -52,13 +53,27 @@ func (sm *SessionManager) CreateSession(userId uuid.UUID, firstQuestion string) 
 
 func (sm *SessionManager) GetSession(userId uuid.UUID, sessionID uuid.UUID) (*models.ChatSession, error) {
 	var chatSession models.ChatSession
+	var deletedAt *time.Time
 
-	query := `SELECT * FROM chat_sessions WHERE user_id = $1 AND id = $2`
+	query := `SELECT id, user_id, title, created_at, updated_at, deleted_at 
+	          FROM ai_chat_sessions 
+	          WHERE user_id = $1 AND id = $2 AND deleted_at IS NULL`
 
-	err := sm.db.QueryRow(query, userId, sessionID).Scan(&chatSession.ID, &chatSession.UserID, &chatSession.Title, &chatSession.CreatedAt, &chatSession.UpdatedAt)
+	err := sm.db.QueryRow(query, userId, sessionID).Scan(
+		&chatSession.ID,
+		&chatSession.UserID,
+		&chatSession.Title,
+		&chatSession.CreatedAt,
+		&chatSession.UpdatedAt,
+		&deletedAt,
+	)
 	if err != nil {
+		fmt.Printf("error getting session: %v\n", err)
 		return nil, err
 	}
+
+	chatSession.Messages = []models.ChatMessage{}
+
 	return &chatSession, nil
 }
 
@@ -67,10 +82,10 @@ func (sm *SessionManager) AddMessage(sessionID uuid.UUID, role, content string) 
 		SessionID: sessionID,
 		Role:      role,
 		Content:   content,
-		Timestamp: time.Now().UnixMilli(),
+		Timestamp: time.Now(),
 	}
 
-	messageQuery := `INSERT INTO chat_messages (session_id, role, content, timestamp)
+	messageQuery := `INSERT INTO ai_chat_messages (session_id, role, content, timestamp)
 	          VALUES ($1, $2, $3, $4)
 	          RETURNING id`
 
