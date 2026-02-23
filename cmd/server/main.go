@@ -18,6 +18,8 @@ import (
 	"chat-app/internal/utils/logger"
 	"chat-app/vault-ai/handler/answer"
 	"chat-app/vault-ai/handler/uploadFile"
+	whiteBoardHandler "chat-app/white-board/handler"
+	whiteBoardLibrary "chat-app/white-board/library"
 
 	"github.com/gin-gonic/gin"
 )
@@ -62,6 +64,9 @@ func main() {
 
 	wsHub := websocket.NewHub()
 	go wsHub.Run()
+
+	whiteBoardHub := whiteBoardLibrary.NewHub()
+	go whiteBoardHub.Run()
 
 	if cfg.Environment == "PRODUCTION" {
 		gin.SetMode(gin.ReleaseMode)
@@ -204,6 +209,28 @@ func main() {
 		ws := v1.Group("/ws")
 		{
 			ws.GET("", wsHandler.HandleConnection)
+		}
+	}
+
+	whiteBoard := v1.Group("/white-board")
+	{
+		whiteBoard.GET("/ws/:roomId", func(c *gin.Context) {
+			roomId := c.Param("roomId")
+			whiteBoardHandler.HandleWebsocket(whiteBoardHub, c, roomId)(c)
+		})
+
+		whiteBoard.GET("/room/:roomId", func(c *gin.Context) {
+			roomId := c.Param("roomId")
+			c.HTML(200, "room.html", gin.H{
+				"RoomId": roomId,
+			})
+		})
+
+		rooms := whiteBoard.Group("/rooms")
+		{
+			rooms.GET("", whiteBoardHandler.GetRoomsList(whiteBoardHub))
+			rooms.GET("/:roomId", whiteBoardHandler.GetRoomInfo(whiteBoardHub))
+			// rooms.GET("/:roomId/stats", whiteBoardHandler.GetRoomStats(whiteBoardHub))
 		}
 	}
 

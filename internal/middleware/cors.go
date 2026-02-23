@@ -14,6 +14,7 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 
 		allowedOrigin := ""
 		allowWildcard := false
+		allowAnyWithCredentials := false
 
 		for _, allowed := range cfg.AllowedOrigins {
 			if allowed == "*" {
@@ -21,7 +22,10 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 					allowWildcard = true
 					break
 				}
-			} else if allowed == origin {
+				allowAnyWithCredentials = true
+				break
+			}
+			if allowed == origin {
 				allowedOrigin = origin
 				break
 			}
@@ -31,6 +35,8 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		} else if allowedOrigin != "" {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		} else if allowAnyWithCredentials && origin != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 		}
 
 		if len(cfg.AllowedMethods) > 0 {
@@ -41,7 +47,7 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 			c.Writer.Header().Set("Access-Control-Allow-Headers", strings.Join(cfg.AllowedHeaders, ", "))
 		}
 
-		if cfg.AllowCredentials && (allowedOrigin != "" || allowWildcard) {
+		if cfg.AllowCredentials && (allowedOrigin != "" || allowWildcard || (allowAnyWithCredentials && origin != "")) {
 			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 

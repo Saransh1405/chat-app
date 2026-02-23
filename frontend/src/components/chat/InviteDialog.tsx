@@ -2,12 +2,14 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserPlus, Search } from "lucide-react";
+import { UserPlus, Search, PenSquare, Copy } from "lucide-react";
 import { roomsAPI } from "@/services/roomsAPI";
 import { usersAPI } from "@/services/usersAPI";
 import type { User } from "@/types/chat";
 import { UserAvatar } from "./UserAvatar";
 import { toast } from "sonner";
+
+const WHITEBOARD_APP_URL = import.meta.env.VITE_WHITEBOARD_APP_URL || "http://localhost:5000";
 
 interface InviteDialogProps {
   roomId: string;
@@ -46,6 +48,12 @@ export function InviteDialog({ roomId, roomName }: InviteDialogProps) {
     }
   };
 
+  const whiteboardUrl = `${WHITEBOARD_APP_URL}/room/${roomId}`;
+  const copyWhiteboardLink = () => {
+    navigator.clipboard.writeText(whiteboardUrl);
+    toast.success("Whiteboard link copied");
+  };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -59,6 +67,28 @@ export function InviteDialog({ roomId, roomName }: InviteDialogProps) {
           <DialogTitle className="gradient-text text-xl font-bold">Invite to {roomName}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-1.5">
+              <PenSquare className="h-3.5 w-3.5" />
+              Whiteboard link (same room)
+            </div>
+            <div className="flex gap-2">
+              <Input
+                readOnly
+                value={whiteboardUrl}
+                className="h-8 text-xs font-mono bg-background"
+              />
+              <button
+                type="button"
+                onClick={copyWhiteboardLink}
+                className="shrink-0 rounded-lg px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors flex items-center gap-1"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy
+              </button>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1.5">Share this so others can join the whiteboard.</p>
+          </div>
           <div className="space-y-2">
             <Label>Search users</Label>
             <div className="relative">

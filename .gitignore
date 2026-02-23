@@ -48,4 +48,13 @@ docker-compose.override.yml
 # mds
 mds/
 
+# Node
 node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+bun.lock
+bun.lock.json
+bun.lock.yaml
+bun.lock.json

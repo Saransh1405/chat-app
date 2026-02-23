@@ -1,7 +1,10 @@
 import type { Room } from "@/types/chat";
 import { InviteDialog } from "./InviteDialog";
-import { Hash, Lock, Users, Book } from "lucide-react";
+import { Hash, Lock, Users, Book, PenSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+/** Base URL of the whiteboard (canvas) app. Same room ID = same whiteboard for all chat members. */
+const WHITEBOARD_APP_URL = import.meta.env.VITE_WHITEBOARD_APP_URL || "http://localhost:5000";
 
 interface RoomHeaderProps {
     room: Room | null;
@@ -58,6 +61,16 @@ export function RoomHeader({ room, isAdmin = true, isMember = true, onJoin, mode
             </div>
 
             <div className="flex items-center gap-2">
+                <a
+                    href={`${WHITEBOARD_APP_URL}/room/${room.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    title="Open collaborative whiteboard (same room)"
+                >
+                    <PenSquare className="h-4 w-4" />
+                    <span>Whiteboard</span>
+                </a>
                 {!isMember && (
                     <button
                         onClick={onJoin}
