@@ -27,7 +27,7 @@ const Login = () => {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div className="flex min-h-screen items-center justify-center bg-mesh p-4">
       {/* Background gradient orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-40 -top-40 h-96 w-96 rounded-full bg-primary/20 blur-3xl" />

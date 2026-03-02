@@ -211,7 +211,7 @@ export function MessageInput({ onSend, onTyping, disabled, mode = "chat" }: Mess
                 </div>
             )}
 
-            <div className="glass flex items-center gap-2 rounded-2xl px-3 py-2">
+            <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-card/50 px-3 py-2 shadow-sm backdrop-blur-sm">
                 <button
                     onClick={() => fileInputRef.current?.click()}
                     className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

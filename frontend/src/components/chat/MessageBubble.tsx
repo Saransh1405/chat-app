@@ -63,10 +63,10 @@ export function MessageBubble({ message, isMe, showAvatar, currentUserId, onReac
 
                 <div
                     className={cn(
-                        "relative rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm",
+                        "relative rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
                         isMe
-                            ? "gradient-primary text-white rounded-tr-md"
-                            : "bg-bubble-other text-bubble-other-foreground rounded-tl-md"
+                            ? "gradient-primary text-white rounded-tr-md shadow-lg shadow-primary/20"
+                            : "bg-bubble-other text-bubble-other-foreground rounded-tl-md shadow-md border border-border/50"
                     )}
                 >
                     {displayContent ? (

@@ -17,16 +17,14 @@ interface RoomHeaderProps {
 export function RoomHeader({ room, isAdmin = true, isMember = true, onJoin, mode = "chat" }: RoomHeaderProps) {
     if (mode === "knowledge_base") {
         return (
-            <header className="flex h-16 items-center justify-between border-b border-border px-6">
+            <header className="flex h-14 sm:h-16 items-center justify-between border-b border-border/80 bg-card/30 px-4 sm:px-6 backdrop-blur-sm">
                 <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                         <Book className="h-4 w-4" />
                     </div>
                     <div>
-                        <h2 className="text-sm font-semibold">AI Knowledge Assistant</h2>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <span>Ask questions about your documents</span>
-                        </div>
+                        <h2 className="text-sm font-semibold text-foreground">AI Knowledge Assistant</h2>
+                        <p className="text-xs text-muted-foreground">Ask questions about your documents</p>
                     </div>
                 </div>
             </header>
@@ -35,26 +33,26 @@ export function RoomHeader({ room, isAdmin = true, isMember = true, onJoin, mode
 
     if (!room) {
         return (
-            <header className="flex h-16 items-center border-b border-border px-6">
+            <header className="flex h-14 sm:h-16 items-center border-b border-border/80 bg-card/30 px-4 sm:px-6 backdrop-blur-sm">
                 <p className="text-sm text-muted-foreground">Select a room to start chatting</p>
             </header>
         );
     }
 
     return (
-        <header className="flex h-16 items-center justify-between border-b border-border px-6">
-            <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+        <header className="flex h-14 sm:h-16 items-center justify-between border-b border-border/80 bg-card/30 px-4 sm:px-6 backdrop-blur-sm">
+            <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-muted/80">
                     {room.type === "private" ? (
                         <Lock className="h-4 w-4 text-muted-foreground" />
                     ) : (
                         <Hash className="h-4 w-4 text-muted-foreground" />
                     )}
                 </div>
-                <div>
-                    <h2 className="text-sm font-semibold">{room.name}</h2>
+                <div className="min-w-0">
+                    <h2 className="truncate text-sm font-semibold text-foreground">{room.name}</h2>
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Users className="h-3 w-3" />
+                        <Users className="h-3 w-3 flex-shrink-0" />
                         <span>{room.member_count} members</span>
                     </div>
                 </div>

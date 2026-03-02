@@ -44,7 +44,7 @@ const Chat = () => {
     const isLoading = mode === "chat" ? isChatLoading : isKbLoading;
 
     return (
-        <div className="flex h-screen w-full overflow-hidden bg-background">
+        <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
             <Sidebar
                 rooms={rooms}
                 activeRoomId={activeRoomId}
